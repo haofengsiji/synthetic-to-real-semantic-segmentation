@@ -203,7 +203,7 @@ class TestSet(data.Dataset):
             _tmp = self.encode_segmap(_tmp)
             _label = Image.fromarray(_tmp)
         else:
-            _tmp = np.ones(np.array(_img).shape[:2])
+            _tmp = 255*np.ones(np.array(_img).shape[:2])
             _label = Image.fromarray(_tmp)
 
         sample = {'image': _img,'label': _label}
@@ -234,50 +234,50 @@ class TestSet(data.Dataset):
         return [os.path.join(rootdir, filename)
                 for filename in sorted(os.listdir(rootdir)) if filename.endswith(suffix)]
 
-# if __name__ == '__main__':
-#     import argparse
-#     import matplotlib.pyplot as plt
-#     from torch.utils.data import DataLoader
-#     from dataloders.utils import decode_segmap
-#
-#     parser = argparse.ArgumentParser()
-#     args = parser.parse_args()
-#     args.base_size = 512
-#     args.crop_size = 512
-#
-#     train = TrainSet(args, 'F:\\ee5934\\data\\GTA_V\\train_img','F:\\ee5934\\data\\GTA_V\\train_label',\
-#                       'F:\\ee5934\\data\\CItyscapes\\train_img')
-#     dataloader = DataLoader(train, batch_size=2, shuffle=True, num_workers=6)
-#     for ii, sample in enumerate(dataloader):
-#         for jj in range(sample["src_image"].size()[0]):
-#             img = sample['src_image'].numpy()
-#             tgt = sample['tgt_image'].numpy()
-#             gt = sample['src_label'].numpy()
-#             tmp = np.array(gt[jj]).astype(np.uint8)
-#             segmap = decode_segmap(tmp, dataset='cityscapes')
-#             img_tmp = np.transpose(img[jj], axes=[1, 2, 0])
-#             img_tmp *= (0.229, 0.224, 0.225)
-#             img_tmp += (0.485, 0.456, 0.406)
-#             img_tmp *= 255.0
-#             img_tmp = img_tmp.astype(np.uint8)
-#             tgt_tmp = np.transpose(tgt[jj], axes=[1, 2, 0])
-#             tgt_tmp *= (0.229, 0.224, 0.225)
-#             tgt_tmp += (0.485, 0.456, 0.406)
-#             tgt_tmp *= 255.0
-#             tgt_tmp = tgt_tmp.astype(np.uint8)
-#             plt.figure()
-#             plt.title('display')
-#             plt.subplot(311)
-#             plt.imshow(img_tmp)
-#             plt.subplot(312)
-#             plt.imshow(segmap)
-#             plt.subplot(313)
-#             plt.imshow(tgt_tmp)
-#
-#         if ii == 1:
-#             break
-#
-#     plt.show(block=True)
+if __name__ == '__main__':
+    import argparse
+    import matplotlib.pyplot as plt
+    from torch.utils.data import DataLoader
+    from dataloders.utils import decode_segmap
+
+    parser = argparse.ArgumentParser()
+    args = parser.parse_args()
+    args.base_size = 512
+    args.crop_size = 512
+
+    train = TrainSet(args, 'F:\\ee5934\\data\\GTA_V\\train_img','F:\\ee5934\\data\\GTA_V\\train_label',\
+                      'F:\\ee5934\\data\\CItyscapes\\train_img')
+    dataloader = DataLoader(train, batch_size=2, shuffle=True, num_workers=6)
+    for ii, sample in enumerate(dataloader):
+        for jj in range(sample["src_image"].size()[0]):
+            img = sample['src_image'].numpy()
+            tgt = sample['tgt_image'].numpy()
+            gt = sample['src_label'].numpy()
+            tmp = np.array(gt[jj]).astype(np.uint8)
+            segmap = decode_segmap(tmp, dataset='cityscapes')
+            img_tmp = np.transpose(img[jj], axes=[1, 2, 0])
+            img_tmp *= (0.229, 0.224, 0.225)
+            img_tmp += (0.485, 0.456, 0.406)
+            img_tmp *= 255.0
+            img_tmp = img_tmp.astype(np.uint8)
+            tgt_tmp = np.transpose(tgt[jj], axes=[1, 2, 0])
+            tgt_tmp *= (0.229, 0.224, 0.225)
+            tgt_tmp += (0.485, 0.456, 0.406)
+            tgt_tmp *= 255.0
+            tgt_tmp = tgt_tmp.astype(np.uint8)
+            plt.figure()
+            plt.title('display')
+            plt.subplot(311)
+            plt.imshow(img_tmp)
+            plt.subplot(312)
+            plt.imshow(segmap)
+            plt.subplot(313)
+            plt.imshow(tgt_tmp)
+
+        if ii == 1:
+            break
+
+    plt.show(block=True)
 
 # if __name__ == '__main__':
 #     import argparse
@@ -319,42 +319,42 @@ class TestSet(data.Dataset):
 #
 #     print()
 
-if __name__ == '__main__':
-    import argparse
-    import matplotlib.pyplot as plt
-    from dataloders.utils import decode_segmap
-    from torch.utils.data import DataLoader
-
-    parser = argparse.ArgumentParser()
-    args = parser.parse_args()
-    args.base_size = 512
-    args.crop_size = 512
-
-    test = TestSet(args,'F:\\ee5934\\data\\CItyscapes\\test_img')
-
-    dataloader = DataLoader(test, batch_size=2, shuffle=True, num_workers=6)
-    for ii, sample in enumerate(dataloader):
-        for jj in range(sample["image"].size()[0]):
-            img = sample['image'].numpy()
-            gt = sample['label'].numpy()
-            tmp = np.array(gt[jj]).astype(np.uint8)
-            segmap = decode_segmap(tmp, dataset='cityscapes')
-            img_tmp = np.transpose(img[jj], axes=[1, 2, 0])
-            img_tmp *= (0.229, 0.224, 0.225)
-            img_tmp += (0.485, 0.456, 0.406)
-            img_tmp *= 255.0
-            img_tmp = img_tmp.astype(np.uint8)
-            plt.figure()
-            plt.title('display')
-            plt.subplot(211)
-            plt.imshow(img_tmp)
-            plt.subplot(212)
-            plt.imshow(segmap)
-
-        if ii == 1:
-            break
-
-    plt.show(block=True)
-
-    print()
+# if __name__ == '__main__':
+#     import argparse
+#     import matplotlib.pyplot as plt
+#     from dataloders.utils import decode_segmap
+#     from torch.utils.data import DataLoader
+#
+#     parser = argparse.ArgumentParser()
+#     args = parser.parse_args()
+#     args.base_size = 512
+#     args.crop_size = 512
+#
+#     test = TestSet(args,'F:\\ee5934\\data\\CItyscapes\\test_img')
+#
+#     dataloader = DataLoader(test, batch_size=2, shuffle=True, num_workers=6)
+#     for ii, sample in enumerate(dataloader):
+#         for jj in range(sample["image"].size()[0]):
+#             img = sample['image'].numpy()
+#             gt = sample['label'].numpy()
+#             tmp = np.array(gt[jj]).astype(np.uint8)
+#             segmap = decode_segmap(tmp, dataset='cityscapes')
+#             img_tmp = np.transpose(img[jj], axes=[1, 2, 0])
+#             img_tmp *= (0.229, 0.224, 0.225)
+#             img_tmp += (0.485, 0.456, 0.406)
+#             img_tmp *= 255.0
+#             img_tmp = img_tmp.astype(np.uint8)
+#             plt.figure()
+#             plt.title('display')
+#             plt.subplot(211)
+#             plt.imshow(img_tmp)
+#             plt.subplot(212)
+#             plt.imshow(segmap)
+#
+#         if ii == 1:
+#             break
+#
+#     plt.show(block=True)
+#
+#     print()
 
