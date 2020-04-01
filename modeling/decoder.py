@@ -55,3 +55,12 @@ class Decoder(nn.Module):
 
 def build_decoder(num_classes, backbone, BatchNorm):
     return Decoder(num_classes, backbone, BatchNorm)
+
+if __name__ == '__main__':
+    BN = SynchronizedBatchNorm2d
+    model = Decoder(19, 'mobilenet', BN)
+    model.eval()
+    low_level_feature = torch.rand(1, 24, 128, 128)
+    high_level_feature = torch.rand(1, 256, 32, 32)
+    output = model(high_level_feature,low_level_feature)
+    print(output.size())

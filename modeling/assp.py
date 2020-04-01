@@ -93,3 +93,11 @@ class ASPP(nn.Module):
 
 def build_aspp(backbone, output_stride, BatchNorm):
     return ASPP(backbone, output_stride, BatchNorm)
+
+if __name__ == '__main__':
+    BN = SynchronizedBatchNorm2d
+    model = build_aspp('mobilenet', 16, BN)
+    model.eval()
+    input = torch.rand(1, 320, 32, 32)
+    output = model(input)
+    print(output.size())
