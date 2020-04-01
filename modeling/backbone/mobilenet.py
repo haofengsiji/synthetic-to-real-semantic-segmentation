@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
@@ -121,7 +122,7 @@ class MobileNetV2(nn.Module):
         return x, low_level_feat
 
     def _load_pretrained_model(self):
-        pretrain_dict = torch.load('./mobilenet_VOC.pth')
+        pretrain_dict = torch.load(os.path.join(os.path.dirname(os.path.abspath(__file__)),'./mobilenet_VOC.pth'))
         model_dict = {}
         state_dict = self.state_dict()
         for k, v in pretrain_dict.items():
