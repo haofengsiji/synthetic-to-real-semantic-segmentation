@@ -5,8 +5,12 @@ import torch.nn.functional as F
 from modeling.sync_batchnorm.batchnorm import SynchronizedBatchNorm2d
 
 class DomainClassifer(nn.Module):
-    def __init__(self,in_channel,BatchNorm):
+    def __init__(self,backbone,BatchNorm):
         super(DomainClassifer, self).__init__()
+        if backbone == 'mobilenet':
+            in_channel = 256
+        else:
+            raise NotImplementedError
 
         self.DC_adnn1 = nn.Sequential(nn.Conv2d(in_channel, 1024, kernel_size=1, stride=1, padding=0, bias=False),
                                        BatchNorm(1024),
@@ -39,12 +43,12 @@ class DomainClassifer(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-def build_domaincls(in_channel, BatchNorm):
-    return DomainClassifer(in_channel, BatchNorm)
+def build_domaincls(backbone, BatchNorm):
+    return DomainClassifer(backbone, BatchNorm)
 
 if __name__ == '__main__':
     BN = SynchronizedBatchNorm2d
-    model = DomainClassifer(256, BN)
+    model = DomainClassifer('mobilenet', BN)
     model.eval()
     input = torch.rand(1, 256, 32, 32)
     output = model(input)

@@ -13,11 +13,11 @@ random.seed(720)
 class TrainSet(data.Dataset):
     NUM_CLASSES = 19
 
-    def __init__(self, args, src_img_root, src_label_root, tgt_img_root):
+    def __init__(self, args):
 
-        self.src_img_root = src_img_root
-        self.src_label_root = src_label_root
-        self.tgt_img_root = tgt_img_root
+        self.src_img_root = args.src_img_root
+        self.src_label_root = args.src_label_root
+        self.tgt_img_root = args.tgt_img_root
         self.args = args
         self.files = {}
 
@@ -95,8 +95,8 @@ class ValSet(data.Dataset):
 
     def __init__(self, args, img_root, label_root):
 
-        self.img_root = img_root
-        self.label_root = label_root
+        self.img_root = args.val_img_root
+        self.label_root = args.val_label_root
         self.args = args
         self.files = {}
 
@@ -163,10 +163,10 @@ class ValSet(data.Dataset):
 class TestSet(data.Dataset):
     NUM_CLASSES = 19
 
-    def __init__(self, args, img_root, label_root = ''):
+    def __init__(self, args):
 
-        self.img_root = img_root
-        self.label_root = label_root
+        self.img_root = args.test_img_root
+        self.label_root = args.test_label_root
         self.args = args
         self.files = {}
 
