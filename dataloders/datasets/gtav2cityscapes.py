@@ -24,7 +24,7 @@ class TrainSet(data.Dataset):
         self.files['source'] = self.recursive_glob(rootdir=self.src_img_root, suffix='.png')
         self.files['target'] = self.recursive_glob(rootdir=self.tgt_img_root, suffix='.png')
 
-        self.void_classes = [0, 1, 2, 3, 4, 5, 6, 9, 10, 14, 15, 16, 18, 29, 30, -1]
+        self.void_classes = [0, 1, 2, 3, 4, 5, 6, 9, 10, 14, 15, 16, 18, 29, 30, 34, -1]
         self.valid_classes = [7, 8, 11, 12, 13, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 31, 32, 33]
         self.class_names = ['unlabelled', 'road', 'sidewalk', 'building', 'wall', 'fence', \
                             'pole', 'traffic_light', 'traffic_sign', 'vegetation', 'terrain', \
@@ -32,7 +32,7 @@ class TrainSet(data.Dataset):
                             'motorcycle', 'bicycle']
 
         self.ignore_index = 255
-        self.class_map = dict(zip(self.valid_classes, range(self.NUM_CLASSES)))
+        self.class_map = dict(zip(self.valid_classes, range(19)))
 
         if not self.files['source']:
             raise Exception("No files for split=[%s] found in %s" % ('source', self.src_img_root))
@@ -93,7 +93,7 @@ class TrainSet(data.Dataset):
 class ValSet(data.Dataset):
     NUM_CLASSES = 19
 
-    def __init__(self, args, img_root, label_root):
+    def __init__(self, args):
 
         self.img_root = args.val_img_root
         self.label_root = args.val_label_root
@@ -102,7 +102,7 @@ class ValSet(data.Dataset):
 
         self.files['label'] = self.recursive_glob(rootdir=self.label_root, suffix='gtFine_labelIds.png')
 
-        self.void_classes = [0, 1, 2, 3, 4, 5, 6, 9, 10, 14, 15, 16, 18, 29, 30, -1]
+        self.void_classes = [0, 1, 2, 3, 4, 5, 6, 9, 10, 14, 15, 16, 18, 29, 30, 34, -1]
         self.valid_classes = [7, 8, 11, 12, 13, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 31, 32, 33]
         self.class_names = ['unlabelled', 'road', 'sidewalk', 'building', 'wall', 'fence', \
                             'pole', 'traffic_light', 'traffic_sign', 'vegetation', 'terrain', \
@@ -172,7 +172,7 @@ class TestSet(data.Dataset):
 
         self.files['image'] = self.recursive_glob(rootdir=self.img_root, suffix='.png')
 
-        self.void_classes = [0, 1, 2, 3, 4, 5, 6, 9, 10, 14, 15, 16, 18, 29, 30, -1]
+        self.void_classes = [0, 1, 2, 3, 4, 5, 6, 9, 10, 14, 15, 16, 18, 29, 30, 34, -1]
         self.valid_classes = [7, 8, 11, 12, 13, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 31, 32, 33]
         self.class_names = ['unlabelled', 'road', 'sidewalk', 'building', 'wall', 'fence', \
                             'pole', 'traffic_light', 'traffic_sign', 'vegetation', 'terrain', \
@@ -234,50 +234,52 @@ class TestSet(data.Dataset):
         return [os.path.join(rootdir, filename)
                 for filename in sorted(os.listdir(rootdir)) if filename.endswith(suffix)]
 
-if __name__ == '__main__':
-    import argparse
-    import matplotlib.pyplot as plt
-    from torch.utils.data import DataLoader
-    from dataloders.utils import decode_segmap
-
-    parser = argparse.ArgumentParser()
-    args = parser.parse_args()
-    args.base_size = 512
-    args.crop_size = 512
-
-    train = TrainSet(args, 'F:\\ee5934\\data\\GTA_V\\train_img','F:\\ee5934\\data\\GTA_V\\train_label',\
-                      'F:\\ee5934\\data\\CItyscapes\\train_img')
-    dataloader = DataLoader(train, batch_size=2, shuffle=True, num_workers=6)
-    for ii, sample in enumerate(dataloader):
-        for jj in range(sample["src_image"].size()[0]):
-            img = sample['src_image'].numpy()
-            tgt = sample['tgt_image'].numpy()
-            gt = sample['src_label'].numpy()
-            tmp = np.array(gt[jj]).astype(np.uint8)
-            segmap = decode_segmap(tmp, dataset='cityscapes')
-            img_tmp = np.transpose(img[jj], axes=[1, 2, 0])
-            img_tmp *= (0.229, 0.224, 0.225)
-            img_tmp += (0.485, 0.456, 0.406)
-            img_tmp *= 255.0
-            img_tmp = img_tmp.astype(np.uint8)
-            tgt_tmp = np.transpose(tgt[jj], axes=[1, 2, 0])
-            tgt_tmp *= (0.229, 0.224, 0.225)
-            tgt_tmp += (0.485, 0.456, 0.406)
-            tgt_tmp *= 255.0
-            tgt_tmp = tgt_tmp.astype(np.uint8)
-            plt.figure()
-            plt.title('display')
-            plt.subplot(311)
-            plt.imshow(img_tmp)
-            plt.subplot(312)
-            plt.imshow(segmap)
-            plt.subplot(313)
-            plt.imshow(tgt_tmp)
-
-        if ii == 1:
-            break
-
-    plt.show(block=True)
+# if __name__ == '__main__':
+#     import argparse
+#     import matplotlib.pyplot as plt
+#     from torch.utils.data import DataLoader
+#     from dataloders.utils import decode_segmap
+#
+#     parser = argparse.ArgumentParser()
+#     args = parser.parse_args()
+#     args.src_img_root = 'F:\\ee5934\\data\\GTA_V\\train_img'
+#     args.src_label_root = 'F:\\ee5934\\data\\GTA_V\\train_label'
+#     args.tgt_img_root = 'F:\\ee5934\\data\\CItyscapes\\train_img'
+#     args.base_size = 512
+#     args.crop_size = 512
+#
+#     train = TrainSet(args)
+#     dataloader = DataLoader(train, batch_size=2, shuffle=True, num_workers=6)
+#     for ii, sample in enumerate(dataloader):
+#         for jj in range(sample["src_image"].size()[0]):
+#             img = sample['src_image'].numpy()
+#             tgt = sample['tgt_image'].numpy()
+#             gt = sample['src_label'].numpy()
+#             tmp = np.array(gt[jj]).astype(np.uint8)
+#             segmap = decode_segmap(tmp, dataset='cityscapes')
+#             img_tmp = np.transpose(img[jj], axes=[1, 2, 0])
+#             img_tmp *= (0.229, 0.224, 0.225)
+#             img_tmp += (0.485, 0.456, 0.406)
+#             img_tmp *= 255.0
+#             img_tmp = img_tmp.astype(np.uint8)
+#             tgt_tmp = np.transpose(tgt[jj], axes=[1, 2, 0])
+#             tgt_tmp *= (0.229, 0.224, 0.225)
+#             tgt_tmp += (0.485, 0.456, 0.406)
+#             tgt_tmp *= 255.0
+#             tgt_tmp = tgt_tmp.astype(np.uint8)
+#             plt.figure()
+#             plt.title('display')
+#             plt.subplot(311)
+#             plt.imshow(img_tmp)
+#             plt.subplot(312)
+#             plt.imshow(segmap)
+#             plt.subplot(313)
+#             plt.imshow(tgt_tmp)
+#
+#         if ii == 1:
+#             break
+#
+#     plt.show(block=True)
 
 # if __name__ == '__main__':
 #     import argparse
@@ -287,10 +289,12 @@ if __name__ == '__main__':
 #
 #     parser = argparse.ArgumentParser()
 #     args = parser.parse_args()
+#     args.val_img_root = 'F:\\ee5934\\data\\CItyscapes\\train_img'
+#     args.val_label_root = 'F:\\ee5934\\data\\CItyscapes\\val_label'
 #     args.base_size = 512
 #     args.crop_size = 512
 #
-#     val = ValSet(args,'F:\\ee5934\\data\\CItyscapes\\train_img','F:\\ee5934\\data\\CItyscapes\\val_label')
+#     val = ValSet(args)
 #
 #     dataloader = DataLoader(val, batch_size=2, shuffle=True, num_workers=6)
 #     for ii, sample in enumerate(dataloader):
@@ -314,47 +318,49 @@ if __name__ == '__main__':
 #         if ii == 1:
 #             break
 #
-#     plt.show(block=True)
+#      plt.show(block=True)
 #
 #
 #     print()
 
-# if __name__ == '__main__':
-#     import argparse
-#     import matplotlib.pyplot as plt
-#     from dataloders.utils import decode_segmap
-#     from torch.utils.data import DataLoader
-#
-#     parser = argparse.ArgumentParser()
-#     args = parser.parse_args()
-#     args.base_size = 512
-#     args.crop_size = 512
-#
-#     test = TestSet(args,'F:\\ee5934\\data\\CItyscapes\\test_img')
-#
-#     dataloader = DataLoader(test, batch_size=2, shuffle=True, num_workers=6)
-#     for ii, sample in enumerate(dataloader):
-#         for jj in range(sample["image"].size()[0]):
-#             img = sample['image'].numpy()
-#             gt = sample['label'].numpy()
-#             tmp = np.array(gt[jj]).astype(np.uint8)
-#             segmap = decode_segmap(tmp, dataset='cityscapes')
-#             img_tmp = np.transpose(img[jj], axes=[1, 2, 0])
-#             img_tmp *= (0.229, 0.224, 0.225)
-#             img_tmp += (0.485, 0.456, 0.406)
-#             img_tmp *= 255.0
-#             img_tmp = img_tmp.astype(np.uint8)
-#             plt.figure()
-#             plt.title('display')
-#             plt.subplot(211)
-#             plt.imshow(img_tmp)
-#             plt.subplot(212)
-#             plt.imshow(segmap)
-#
-#         if ii == 1:
-#             break
-#
-#     plt.show(block=True)
-#
-#     print()
+if __name__ == '__main__':
+    import argparse
+    import matplotlib.pyplot as plt
+    from dataloders.utils import decode_segmap
+    from torch.utils.data import DataLoader
+
+    parser = argparse.ArgumentParser()
+    args = parser.parse_args()
+    args.test_img_root = 'F:\\ee5934\\data\\CItyscapes\\test_img'
+    args.test_label_root = ''
+    args.base_size = 512
+    args.crop_size = 512
+
+    test = TestSet(args)
+
+    dataloader = DataLoader(test, batch_size=2, shuffle=True, num_workers=6)
+    for ii, sample in enumerate(dataloader):
+        for jj in range(sample["image"].size()[0]):
+            img = sample['image'].numpy()
+            gt = sample['label'].numpy()
+            tmp = np.array(gt[jj]).astype(np.uint8)
+            segmap = decode_segmap(tmp, dataset='cityscapes')
+            img_tmp = np.transpose(img[jj], axes=[1, 2, 0])
+            img_tmp *= (0.229, 0.224, 0.225)
+            img_tmp += (0.485, 0.456, 0.406)
+            img_tmp *= 255.0
+            img_tmp = img_tmp.astype(np.uint8)
+            plt.figure()
+            plt.title('display')
+            plt.subplot(211)
+            plt.imshow(img_tmp)
+            plt.subplot(212)
+            plt.imshow(segmap)
+
+        if ii == 1:
+            break
+
+    plt.show(block=True)
+
+    print()
 

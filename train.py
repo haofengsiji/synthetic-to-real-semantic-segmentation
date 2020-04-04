@@ -1,19 +1,25 @@
 import os
+from tqdm import tqdm
 import argparse
 import numpy as np
+
 import torch
 import torch.nn as nn
-
+import torch.nn.functional as F
 
 from modeling.backbone.mobilenet import MobileNetV2
 from modeling.assp import ASPP
 from modeling.domian import DomainClassifer
 from modeling.decoder import Decoder
 from modeling.sync_batchnorm.batchnorm import SynchronizedBatchNorm2d
+from modeling.sync_batchnorm.replicate import patch_replication_callback
 from utils.saver import Saver
+from utils.metrics import Evaluator
 from utils.loss import SegmentationLosses
+from utils.lr_scheduler import LR_Scheduler
 from utils.summaries import TensorboardSummary
 from utils.calculate_weights import calculate_weigths_labels
+
 
 from dataloders import make_data_loader
 
@@ -38,51 +44,51 @@ class Trainer(object):
         else:
             BN = nn.BatchNorm2d
         ### deeplabV3 start ###
-        backbone_model = MobileNetV2(output_stride = args.out_stride,
+        self.backbone_model = MobileNetV2(output_stride = args.out_stride,
                             BatchNorm = BN)
-        assp_model = ASPP(backbone = args.backbone,
+        self.assp_model = ASPP(backbone = args.backbone,
                           output_stride = args.out_stride,
                           BatchNorm = BN)
-        y_model = Decoder(num_classes = self.nclass,
+        self.y_model = Decoder(num_classes = self.nclass,
                           backbone = args.backbone,
                           BatchNorm = BN)
         ### deeplabV3 end ###
-        d_model = DomainClassifer(backbone = args.backbone,
+        self.d_model = DomainClassifer(backbone = args.backbone,
                                   BatchNorm = BN)
-        f_params = [backbone_model.parameters(),assp_model.parameters()]
-        y_params = [y_model.parameters()]
-        d_params = [d_model.parameters()]
+        f_params = list(self.backbone_model.parameters()) + list(self.assp_model.parameters())
+        y_params = list(self.y_model.parameters())
+        d_params = list(self.d_model.parameters())
 
         # Define Optimizer
         if args.optimizer == 'SGD':
-            task_optimizer = torch.optim.SGD(f_params+y_params, lr= args.lr,
+            self.task_optimizer = torch.optim.SGD(f_params+y_params, lr= args.lr,
                                              momentum=args.momentum,
                                              weight_decay=args.weight_decay, nesterov=args.nesterov)
-            d_optimizer = torch.optim.SGD(d_params, lr= args.lr,
+            self.d_optimizer = torch.optim.SGD(d_params, lr= args.lr,
                                           momentum=args.momentum,
                                           weight_decay=args.weight_decay, nesterov=args.nesterov)
-            d_inv_optimizer = torch.optim.SGD(f_params, lr= args.lr,
+            self.d_inv_optimizer = torch.optim.SGD(f_params, lr= args.lr,
                                           momentum=args.momentum,
                                           weight_decay=args.weight_decay, nesterov=args.nesterov)
-            c_optimizer = torch.optim.SGD(f_params+y_params, lr= args.lr,
+            self.c_optimizer = torch.optim.SGD(f_params+y_params, lr= args.lr,
                                           momentum=args.momentum,
                                           weight_decay=args.weight_decay, nesterov=args.nesterov)
         elif args.optimizer == 'Adam':
-            task_optimizer = torch.optim.Adam(f_params + y_params, lr=args.lr)
-            d_optimizer = torch.optim.Adam(d_params, lr=args.lr)
-            d_inv_optimizer = torch.optim.Adam(d_params, lr=args.lr)
-            c_optimizer = torch.optim.Adam(f_params+y_params, lr=args.lr)
+            self.task_optimizer = torch.optim.Adam(f_params + y_params, lr=args.lr)
+            self.d_optimizer = torch.optim.Adam(d_params, lr=args.lr)
+            self.d_inv_optimizer = torch.optim.Adam(d_params, lr=args.lr)
+            self.c_optimizer = torch.optim.Adam(f_params+y_params, lr=args.lr)
         else:
             raise NotImplementedError
 
         # Define Criterion
         # whether to use class balanced weights
         if args.use_balanced_weights:
-            classes_weights_path = 'dataloder\\datasets\\'+args.dataset + '_classes_weights.npy'
+            classes_weights_path = 'dataloders\\datasets\\'+args.dataset + '_classes_weights.npy'
             if os.path.isfile(classes_weights_path):
                 weight = np.load(classes_weights_path)
             else:
-                weight = calculate_weigths_labels(args.dataset, self.train_loader, self.nclass, classes_weights_path)
+                weight = calculate_weigths_labels(self.train_loader, self.nclass, classes_weights_path)
             weight = torch.from_numpy(weight.astype(np.float32))
         else:
             weight = None
@@ -91,11 +97,110 @@ class Trainer(object):
         self.domain_inv_loss = ''
         self.ca_loss = ''
 
+        # Define Evaluator
+        self.evaluator = Evaluator(self.nclass)
 
+        # Define lr scheduler
+        self.scheduler = LR_Scheduler(args.lr_scheduler, args.lr,
+                                      args.epochs, len(self.train_loader))
 
+        # Using cuda
+        if args.cuda:
+            self.backbone_model = torch.nn.DataParallel(self.backbone_model, device_ids=self.args.gpu_ids)
+            self.assp_model = torch.nn.DataParallel(self.assp_model, device_ids=self.args.gpu_ids)
+            self.y_model = torch.nn.DataParallel(self.y_model, device_ids=self.args.gpu_ids)
+            self.d_model = torch.nn.DataParallel(self.d_model, device_ids=self.args.gpu_ids)
+            patch_replication_callback(self.backbone_model)
+            patch_replication_callback(self.assp_model)
+            patch_replication_callback(self.y_model)
+            patch_replication_callback(self.d_model)
+            self.backbone_model = self.backbone_model.cuda()
+            self.assp_model = self.assp_model.cuda()
+            self.y_model = self.y_model.cuda()
+            self.d_model = self.d_model.cuda()
 
+        # Resuming checkpoint
+        self.best_pred = 0.0
+        if args.resume is not None:
+            if not os.path.isfile(args.resume):
+                raise RuntimeError("=> no checkpoint found at '{}'".format(args.resume))
+            checkpoint = torch.load(args.resume)
+            args.start_epoch = checkpoint['epoch']
+            if args.cuda:
+                self.backbone_model.module.load_state_dict(checkpoint['backbone_model_state_dict'])
+                self.assp_model.module.load_state_dict(checkpoint['assp_model_state_dict'])
+                self.y_model.module.load_state_dict(checkpoint['y_model_state_dict'])
+                self.d_model.module.load_state_dict(checkpoint['d_model_state_dict'])
+            else:
+                self.backbone_model.load_state_dict(checkpoint['backbone_model_state_dict'])
+                self.assp_model.load_state_dict(checkpoint['assp_model_state_dict'])
+                self.y_model.load_state_dict(checkpoint['y_model_state_dict'])
+                self.d_model.load_state_dict(checkpoint['d_model_state_dict'])
+            if not args.ft:
+                self.task_optimizer.load_state_dict(checkpoint['task_optimizer'])
+                self.d_optimizer.load_state_dict(checkpoint['d_optimizer'])
+                self.d_inv_optimizer.load_state_dict(checkpoint['d_inv_optimizer'])
+                self.c_optimizer.load_state_dict(checkpoint['c_optimizer'])
+            self.best_pred = checkpoint['best_pred']
+            print("=> loaded checkpoint '{}' (epoch {})"
+                  .format(args.resume, checkpoint['epoch']))
 
+        # Clear start epoch if fine-tuning
+        if args.ft:
+            args.start_epoch = 0
 
+    def training(self, epoch):
+        train_loss = 0.0
+        self.backbone_model.train()
+        self.assp_model.train()
+        self.y_model.train()
+        self.d_model.train()
+        tbar = tqdm(self.train_loader)
+        num_img_tr = len(self.train_loader)
+        for i, sample in enumerate(tbar):
+            src_image, src_label, tgt_image = sample['src_image'], sample['src_label'], sample['tgt_image']
+            if self.args.cuda:
+                src_image, src_label, tgt_image  = src_image.cuda(), src_label.cuda(), tgt_image.cuda()
+            self.scheduler(self.task_optimizer, i, epoch, self.best_pred)
+            self.scheduler(self.d_optimizer, i, epoch, self.best_pred)
+            self.scheduler(self.d_inv_optimizer, i, epoch, self.best_pred)
+            self.scheduler(self.c_optimizer, i, epoch, self.best_pred)
+            self.task_optimizer.zero_grad()
+            self.d_optimizer.zero_grad()
+            self.d_inv_optimizer.zero_grad()
+            self.c_optimizer.zero_grad()
+            src_high_feature, src_low_feature = self.backbone_model(src_image)
+            src_high_feature = self.assp_model(src_high_feature)
+            src_output = F.interpolate(self.y_model(src_high_feature,src_low_feature),src_image.size()[2:], \
+                                       mode='bilinear', align_corners=True)
+            task_loss = self.task_loss(src_output, src_label)
+            task_loss.backward()
+            self.task_optimizer.step()
+            train_loss += task_loss.item()
+            tbar.set_description('Train loss: %.3f' % (train_loss / (i + 1)))
+            self.writer.add_scalar('train/total_loss_iter', task_loss.item(), i + num_img_tr * epoch)
+
+            # Show 10 * 3 inference results each epoch
+            if i % (num_img_tr // 10) == 0:
+                global_step = i + num_img_tr * epoch
+                self.summary.visualize_image(self.writer, self.args.dataset, src_image, src_label, src_output, global_step)
+
+        self.writer.add_scalar('train/total_loss_epoch', train_loss, epoch)
+        print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + src_image.data.shape[0]))
+        print('Loss: %.3f' % train_loss)
+
+        if self.args.no_val:
+            # save checkpoint every epoch
+            is_best = False
+            self.saver.save_checkpoint({
+                'epoch': epoch + 1,
+                'backbone_model_state_dict': self.backbone_model.module.state_dict(),
+                'assp_model_state_dict': self.assp_model.module.state_dict(),
+                'y_model_state_dict': self.y_model.module.state_dict(),
+                'd_model_state_dict': self.d_model.module.state_dict(),
+                'optimizer': self.optimizer.state_dict(),
+                'best_pred': self.best_pred,
+            }, is_best)
 
 
 def main():
@@ -108,6 +213,23 @@ def main():
     parser.add_argument('--dataset', type=str, default='gtav2cityscapes',
                         choices=['gtav2cityscapes'],
                         help='dataset name (default: gtav2cityscapes)')
+    # path to the training dataset
+    parser.add_argument('--src_img_root', type=str, default='F:\\ee5934\\data\\GTA_V\\train_img',
+                        help='path to the source training images')
+    parser.add_argument('--src_label_root', type=str, default='F:\\ee5934\\data\\GTA_V\\train_label',
+                        help='path to the source training labels')
+    parser.add_argument('--tgt_img_root', type=str, default='F:\\ee5934\\data\\GTA_V\\train_label',
+                        help='path to the target training images')
+    # path to the validation dataset
+    parser.add_argument('--val_img_root', type=str, default='F:\\ee5934\\data\\CItyscapes\\train_img',
+                        help='path to the validation training images')
+    parser.add_argument('--val_label_root', type=str, default='F:\\ee5934\\data\\CItyscapes\\val_label',
+                        help='path to the validation training labels')
+    # path to the test dataset
+    parser.add_argument('--test_img_root', type=str, default='F:\\ee5934\\data\\CItyscapes\\test_img',
+                        help='path to the test training images')
+    parser.add_argument('--test_label_root', type=str, default='',
+                        help='path to the test training labels')
     parser.add_argument('--workers', type=int, default=4,
                         metavar='N', help='dataloader threads')
     parser.add_argument('--base-size', type=int, default=512,
@@ -122,14 +244,14 @@ def main():
                         choices=['ce', 'focal'],
                         help='loss func type (default: ce)')
     # training hyper params
-    parser.add_argument('--epochs', type=int, default=None, metavar='N',
+    parser.add_argument('--epochs', type=int, default=1, metavar='N',
                         help='number of epochs to train (default: auto)')
     parser.add_argument('--optimizer', type=str, default='SGD',
                         choices = ['SGD','Adam'],
                         help='the method of optimizer (default: SGD)')
     parser.add_argument('--start_epoch', type=int, default=0,
                         metavar='N', help='start epochs (default:0)')
-    parser.add_argument('--batch-size', type=int, default=1,
+    parser.add_argument('--batch-size', type=int, default=2,
                         metavar='N', help='input batch size for \
                                     training (default: auto)')
     parser.add_argument('--test-batch-size', type=int, default=1,
@@ -138,10 +260,17 @@ def main():
     # optimizer params
     parser.add_argument('--lr', type=float, default=None, metavar='LR',
                         help='learning rate (default: auto)')
+    parser.add_argument('--lr-scheduler', type=str, default='poly',
+                        choices=['poly', 'step', 'cos'],
+                        help='lr scheduler mode: (default: poly)')
     parser.add_argument('--momentum', type=float, default=0.9,
                         metavar='M', help='momentum (default: 0.9)')
     parser.add_argument('--weight-decay', type=float, default=5e-4,
                         metavar='M', help='w-decay (default: 5e-4)')
+    parser.add_argument('--nesterov', action='store_true', default=False,
+                        help='whether use nesterov (default: False)')
+    parser.add_argument('--use_balanced_weights', action='store_true', default=True,
+                        help='whether use balanced weights (default: True)')
     # cuda, seed and logging
     parser.add_argument('--no-cuda', action='store_true', default=
                         False, help='disables CUDA training')

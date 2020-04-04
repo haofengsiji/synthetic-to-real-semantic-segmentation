@@ -24,7 +24,7 @@ def decode_segmap(label_mask, dataset, plot=False):
     if dataset == 'pascal' or dataset == 'coco':
         n_classes = 21
         label_colours = get_pascal_labels()
-    elif dataset == 'cityscapes':
+    elif dataset == 'gtav2cityscapes':
         n_classes = 19
         label_colours = get_cityscapes_labels()
     else:
