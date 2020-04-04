@@ -198,10 +198,71 @@ class Trainer(object):
                 'assp_model_state_dict': self.assp_model.module.state_dict(),
                 'y_model_state_dict': self.y_model.module.state_dict(),
                 'd_model_state_dict': self.d_model.module.state_dict(),
-                'optimizer': self.optimizer.state_dict(),
+                'task_optimizer': self.task_optimizer.state_dict(),
+                'd_optimizer': self.d_optimizer.state_dict(),
+                'd_inv_optimizer': self.d_inv_optimizer.state_dict(),
+                'c_optimizer': self.c_optimizer.state_dict(),
                 'best_pred': self.best_pred,
             }, is_best)
 
+    def validation(self, epoch):
+        self.backbone_model.eval()
+        self.assp_model.eval()
+        self.y_model.eval()
+        self.d_model.eval()
+        self.evaluator.reset()
+        tbar = tqdm(self.val_loader, desc='\r')
+        test_loss = 0.0
+        for i, sample in enumerate(tbar):
+            image, target = sample['image'], sample['label']
+            if self.args.cuda:
+                image, target = image.cuda(), target.cuda()
+            with torch.no_grad():
+                high_feature, low_feature = self.backbone_model(image)
+                high_feature = self.assp_model(high_feature)
+                output = F.interpolate(self.y_model(high_feature, low_feature), image.size()[2:], \
+                                           mode='bilinear', align_corners=True)
+            task_loss = self.task_loss(output, target)
+            test_loss += task_loss.item()
+            tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
+            pred = output.data.cpu().numpy()
+            target = target.cpu().numpy()
+            pred = np.argmax(pred, axis=1)
+            # Add batch sample into evaluator
+            self.evaluator.add_batch(target, pred)
+
+        # Fast test during the training
+        Acc = self.evaluator.Pixel_Accuracy()
+        Acc_class = self.evaluator.Pixel_Accuracy_Class()
+        mIoU = self.evaluator.Mean_Intersection_over_Union()
+        FWIoU = self.evaluator.Frequency_Weighted_Intersection_over_Union()
+        self.writer.add_scalar('val/total_loss_epoch', test_loss, epoch)
+        self.writer.add_scalar('val/mIoU', mIoU, epoch)
+        self.writer.add_scalar('val/Acc', Acc, epoch)
+        self.writer.add_scalar('val/Acc_class', Acc_class, epoch)
+        self.writer.add_scalar('val/fwIoU', FWIoU, epoch)
+        print('Validation:')
+        print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]))
+        print("Acc:{}, Acc_class:{}, mIoU:{}, fwIoU: {}".format(Acc, Acc_class, mIoU, FWIoU))
+        print('Loss: %.3f' % test_loss)
+
+        new_pred = mIoU
+
+        if new_pred > self.best_pred:
+            is_best = True
+            self.best_pred = new_pred
+            self.saver.save_checkpoint({
+                'epoch': epoch + 1,
+                'backbone_model_state_dict': self.backbone_model.module.state_dict(),
+                'assp_model_state_dict': self.assp_model.module.state_dict(),
+                'y_model_state_dict': self.y_model.module.state_dict(),
+                'd_model_state_dict': self.d_model.module.state_dict(),
+                'task_optimizer': self.task_optimizer.state_dict(),
+                'd_optimizer': self.d_optimizer.state_dict(),
+                'd_inv_optimizer': self.d_inv_optimizer.state_dict(),
+                'c_optimizer': self.c_optimizer.state_dict(),
+                'best_pred': self.best_pred,
+            }, is_best)
 
 def main():
     parser = argparse.ArgumentParser(description="PyTorch Deeplab_Wild Training")
@@ -218,7 +279,7 @@ def main():
                         help='path to the source training images')
     parser.add_argument('--src_label_root', type=str, default='F:\\ee5934\\data\\GTA_V\\train_label',
                         help='path to the source training labels')
-    parser.add_argument('--tgt_img_root', type=str, default='F:\\ee5934\\data\\GTA_V\\train_label',
+    parser.add_argument('--tgt_img_root', type=str, default='F:\\ee5934\\data\\CItyscapes\\train_img',
                         help='path to the target training images')
     # path to the validation dataset
     parser.add_argument('--val_img_root', type=str, default='F:\\ee5934\\data\\CItyscapes\\train_img',
@@ -251,7 +312,7 @@ def main():
                         help='the method of optimizer (default: SGD)')
     parser.add_argument('--start_epoch', type=int, default=0,
                         metavar='N', help='start epochs (default:0)')
-    parser.add_argument('--batch-size', type=int, default=2,
+    parser.add_argument('--batch-size', type=int, default=4,
                         metavar='N', help='input batch size for \
                                     training (default: auto)')
     parser.add_argument('--test-batch-size', type=int, default=1,
@@ -338,6 +399,7 @@ def main():
             trainer.validation(epoch)
 
     trainer.writer.close()
+
 
 
 
