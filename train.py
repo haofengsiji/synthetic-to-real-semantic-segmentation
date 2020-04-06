@@ -15,7 +15,7 @@ from modeling.sync_batchnorm.batchnorm import SynchronizedBatchNorm2d
 from modeling.sync_batchnorm.replicate import patch_replication_callback
 from utils.saver import Saver
 from utils.metrics import Evaluator
-from utils.loss import SegmentationLosses
+from utils.loss import SegmentationLosses,DomainLosses
 from utils.lr_scheduler import LR_Scheduler
 from utils.summaries import TensorboardSummary
 from utils.calculate_weights import calculate_weigths_labels
@@ -93,8 +93,8 @@ class Trainer(object):
         else:
             weight = None
         self.task_loss = SegmentationLosses(weight=weight, cuda=args.cuda).build_loss(mode=args.loss_type)
-        self.domain_loss = ''
-        self.domain_inv_loss = ''
+        self.domain_loss = DomainLosses(cuda=args.cuda).build_loss(mode='no_inv')
+        self.domain_inv_loss = DomainLosses(cuda=args.cuda).build_loss(mode='inv')
         self.ca_loss = ''
 
         # Define Evaluator
@@ -151,6 +151,9 @@ class Trainer(object):
 
     def training(self, epoch):
         train_loss = 0.0
+        train_task_loss = 0.0
+        train_d_loss = 0.0
+        train_d_inv_loss = 0.0
         self.backbone_model.train()
         self.assp_model.train()
         self.y_model.train()
@@ -165,27 +168,70 @@ class Trainer(object):
             self.scheduler(self.d_optimizer, i, epoch, self.best_pred)
             self.scheduler(self.d_inv_optimizer, i, epoch, self.best_pred)
             self.scheduler(self.c_optimizer, i, epoch, self.best_pred)
-            self.task_optimizer.zero_grad()
-            self.d_optimizer.zero_grad()
+
             self.d_inv_optimizer.zero_grad()
             self.c_optimizer.zero_grad()
+            # source image feature
             src_high_feature, src_low_feature = self.backbone_model(src_image)
             src_high_feature = self.assp_model(src_high_feature)
-            src_output = F.interpolate(self.y_model(src_high_feature,src_low_feature),src_image.size()[2:], \
+            src_output = F.interpolate(self.y_model(src_high_feature, src_low_feature), src_image.size()[2:], \
                                        mode='bilinear', align_corners=True)
-            task_loss = self.task_loss(src_output, src_label)
-            task_loss.backward()
-            self.task_optimizer.step()
-            train_loss += task_loss.item()
-            tbar.set_description('Train loss: %.3f' % (train_loss / (i + 1)))
-            self.writer.add_scalar('train/total_loss_iter', task_loss.item(), i + num_img_tr * epoch)
+            # target image feature
+            tgt_high_feature, tgt_low_feature = self.backbone_model(tgt_image)
+            tgt_high_feature = self.assp_model(tgt_high_feature)
+            tgt_output = F.interpolate(self.y_model(tgt_high_feature, tgt_low_feature), src_image.size()[2:], \
+                                       mode='bilinear', align_corners=True)
 
+            # BP
+            #-------------------
+            # task loss
+            #-------------------
+            self.task_optimizer.zero_grad()
+            task_loss = self.task_loss(src_output, src_label)
+            task_loss.backward(retain_graph=True)
+            self.task_optimizer.step()
+            self.d_optimizer.zero_grad()
+            # -------------------
+            # domain & d_inv loss
+            # -------------------
+            self.d_optimizer.zero_grad()
+            d_loss = self.domain_loss(src_high_feature, tgt_high_feature)
+            d_loss.backward(retain_graph=True)
+            self.d_optimizer.step()
+            self.d_inv_optimizer.zero_grad()
+            d_inv_loss = (self.domain_inv_loss(src_high_feature, tgt_high_feature)\
+                          + self.domain_loss(src_high_feature, tgt_high_feature))/2
+            d_inv_loss.backward()
+            self.d_inv_optimizer.step()
+            # -------------------
+            # CA loss
+            # -------------------
+            pass
+
+            train_task_loss += task_loss.item()
+            train_d_loss += d_loss.item()
+            train_d_inv_loss += d_inv_loss.item()
+            train_loss += train_task_loss + train_d_loss + train_d_inv_loss
+            tbar.set_description('Train loss: %.3f t_loss: %.3f d_loss loss: %.3f d_inv_loss: %.3f' \
+                                 % (train_loss / (i + 1),train_task_loss / (i + 1),\
+                                    train_d_loss / (i + 1),train_d_inv_loss / (i + 1)))
+
+            self.writer.add_scalar('train/total_loss_iter', task_loss.item()+d_loss.item()+d_inv_loss.item(),\
+                                   i + num_img_tr * epoch)
+            self.writer.add_scalar('train/task_loss_iter', task_loss.item(), i + num_img_tr * epoch)
+            self.writer.add_scalar('train/d_loss_iter', d_loss.item(), i + num_img_tr * epoch)
+            self.writer.add_scalar('train/d_inv_loss_iter', d_inv_loss.item(), i + num_img_tr * epoch)
             # Show 10 * 3 inference results each epoch
             if i % (num_img_tr // 10) == 0:
                 global_step = i + num_img_tr * epoch
-                self.summary.visualize_image(self.writer, self.args.dataset, src_image, src_label, src_output, global_step)
+                image = torch.cat([src_image,tgt_image],dim=0)
+                output = torch.cat([tgt_output,tgt_output],dim=0)
+                self.summary.visualize_image(self.writer, self.args.dataset, image, src_label, output, global_step)
 
         self.writer.add_scalar('train/total_loss_epoch', train_loss, epoch)
+        self.writer.add_scalar('train/task_loss_epoch', train_task_loss, epoch)
+        self.writer.add_scalar('train/d_loss_epoch', train_d_loss, epoch)
+        self.writer.add_scalar('train/d_inv_loss_epoch', task_loss, epoch)
         print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + src_image.data.shape[0]))
         print('Loss: %.3f' % train_loss)
 
@@ -312,7 +358,7 @@ def main():
                         help='the method of optimizer (default: SGD)')
     parser.add_argument('--start_epoch', type=int, default=0,
                         metavar='N', help='start epochs (default:0)')
-    parser.add_argument('--batch-size', type=int, default=4,
+    parser.add_argument('--batch-size', type=int, default=2,
                         metavar='N', help='input batch size for \
                                     training (default: auto)')
     parser.add_argument('--test-batch-size', type=int, default=1,
