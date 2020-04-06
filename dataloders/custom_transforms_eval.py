@@ -69,3 +69,19 @@ class FixScaleCrop(object):
 
         return {'image': img,
                 'label': mask}
+
+class FixedResize(object):
+    def __init__(self, size):
+        self.size = (size, size)  # size: (h, w)
+
+    def __call__(self, sample):
+        img = sample['image']
+        mask = sample['label']
+
+        assert img.size == mask.size
+
+        img = img.resize(self.size, Image.BILINEAR)
+        mask = mask.resize(self.size, Image.NEAREST)
+
+        return {'image': img,
+                'label': mask}
