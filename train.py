@@ -176,11 +176,13 @@ class Trainer(object):
             src_high_feature = self.assp_model(src_high_feature)
             src_output = F.interpolate(self.y_model(src_high_feature, src_low_feature), src_image.size()[2:], \
                                        mode='bilinear', align_corners=True)
+            src_d_pred = self.d_model(src_high_feature)
             # target image feature
             tgt_high_feature, tgt_low_feature = self.backbone_model(tgt_image)
             tgt_high_feature = self.assp_model(tgt_high_feature)
             tgt_output = F.interpolate(self.y_model(tgt_high_feature, tgt_low_feature), src_image.size()[2:], \
                                        mode='bilinear', align_corners=True)
+            tgt_d_pred = self.d_model(tgt_high_feature)
 
             # BP
             #-------------------
@@ -195,12 +197,11 @@ class Trainer(object):
             # domain & d_inv loss
             # -------------------
             self.d_optimizer.zero_grad()
-            d_loss = self.domain_loss(src_high_feature, tgt_high_feature)
+            d_loss = self.domain_loss(src_d_pred, tgt_d_pred)
             d_loss.backward(retain_graph=True)
             self.d_optimizer.step()
             self.d_inv_optimizer.zero_grad()
-            d_inv_loss = (self.domain_inv_loss(src_high_feature, tgt_high_feature)\
-                          + self.domain_loss(src_high_feature, tgt_high_feature))/2
+            d_inv_loss = (self.domain_inv_loss(src_d_pred, tgt_d_pred) + self.domain_loss(src_d_pred, tgt_d_pred))/2
             d_inv_loss.backward()
             self.d_inv_optimizer.step()
             # -------------------
@@ -211,7 +212,7 @@ class Trainer(object):
             train_task_loss += task_loss.item()
             train_d_loss += d_loss.item()
             train_d_inv_loss += d_inv_loss.item()
-            train_loss += train_task_loss + train_d_loss + train_d_inv_loss
+            train_loss += task_loss.item() + d_loss.item() + d_inv_loss.item()
             tbar.set_description('Train loss: %.3f t_loss: %.3f d_loss loss: %.3f d_inv_loss: %.3f' \
                                  % (train_loss / (i + 1),train_task_loss / (i + 1),\
                                     train_d_loss / (i + 1),train_d_inv_loss / (i + 1)))
@@ -339,9 +340,9 @@ def main():
                         help='path to the test training labels')
     parser.add_argument('--workers', type=int, default=4,
                         metavar='N', help='dataloader threads')
-    parser.add_argument('--base-size', type=int, default=512,
+    parser.add_argument('--base-size', type=int, default=256,
                         help='base image size')
-    parser.add_argument('--crop-size', type=int, default=512,
+    parser.add_argument('--crop-size', type=int, default=256,
                         help='crop image size')
     parser.add_argument('--sync-bn', type=bool, default=None,
                         help='whether to use sync bn (default: auto)')
@@ -350,6 +351,8 @@ def main():
     parser.add_argument('--loss-type', type=str, default='ce',
                         choices=['ce', 'focal'],
                         help='loss func type (default: ce)')
+    parser.add_argument('--no_d_loss', type=bool, default=False,
+                        help='whether to use domain transfer loss(default: False)')
     # training hyper params
     parser.add_argument('--epochs', type=int, default=1, metavar='N',
                         help='number of epochs to train (default: auto)')
