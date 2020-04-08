@@ -76,7 +76,7 @@ class Trainer(object):
         elif args.optimizer == 'Adam':
             self.task_optimizer = torch.optim.Adam(f_params + y_params, lr=args.lr)
             self.d_optimizer = torch.optim.Adam(d_params, lr=args.lr)
-            self.d_inv_optimizer = torch.optim.Adam(d_params, lr=args.lr)
+            self.d_inv_optimizer = torch.optim.Adam(f_params, lr=args.lr)
             self.c_optimizer = torch.optim.Adam(f_params+y_params, lr=args.lr)
         else:
             raise NotImplementedError
@@ -168,7 +168,8 @@ class Trainer(object):
             self.scheduler(self.d_optimizer, i, epoch, self.best_pred)
             self.scheduler(self.d_inv_optimizer, i, epoch, self.best_pred)
             self.scheduler(self.c_optimizer, i, epoch, self.best_pred)
-
+            self.task_optimizer.zero_grad()
+            self.d_optimizer.zero_grad()
             self.d_inv_optimizer.zero_grad()
             self.c_optimizer.zero_grad()
             # source image feature
@@ -185,37 +186,24 @@ class Trainer(object):
             tgt_d_pred = self.d_model(tgt_high_feature)
 
             # BP
-            #-------------------
-            # task loss
-            #-------------------
-            self.task_optimizer.zero_grad()
             task_loss = self.task_loss(src_output, src_label)
-            task_loss.backward(retain_graph=True)
-            self.task_optimizer.step()
-            self.d_optimizer.zero_grad()
-            # -------------------
-            # domain & d_inv loss
-            # -------------------
-            self.d_optimizer.zero_grad()
-            d_loss = self.domain_loss(src_d_pred, tgt_d_pred)
-            d_loss.backward(retain_graph=True)
-            self.d_optimizer.step()
-            self.d_inv_optimizer.zero_grad()
-            d_inv_loss = (self.domain_inv_loss(src_d_pred, tgt_d_pred) + self.domain_loss(src_d_pred, tgt_d_pred))/2
-            d_inv_loss.backward()
-            self.d_inv_optimizer.step()
-            # -------------------
-            # CA loss
-            # -------------------
+            d_loss,acc = self.domain_loss(src_d_pred, tgt_d_pred)
+            d_inv_loss = self.domain_inv_loss(src_d_pred, tgt_d_pred)
             pass
+
+            loss = task_loss + d_loss + 0.5*d_inv_loss
+            loss.backward()
+            self.task_optimizer.step()
+            self.d_optimizer.step()
+            self.d_inv_optimizer.step()
 
             train_task_loss += task_loss.item()
             train_d_loss += d_loss.item()
             train_d_inv_loss += d_inv_loss.item()
             train_loss += task_loss.item() + d_loss.item() + d_inv_loss.item()
-            tbar.set_description('Train loss: %.3f t_loss: %.3f d_loss loss: %.3f d_inv_loss: %.3f' \
+            tbar.set_description('Train loss: %.3f t_l: %.3f d_ls: %.3f d_inv_l: %.3f d_acc: %.2f' \
                                  % (train_loss / (i + 1),train_task_loss / (i + 1),\
-                                    train_d_loss / (i + 1),train_d_inv_loss / (i + 1)))
+                                    train_d_loss / (i + 1),train_d_inv_loss / (i + 1), acc.item()*100))
 
             self.writer.add_scalar('train/total_loss_iter', task_loss.item()+d_loss.item()+d_inv_loss.item(),\
                                    i + num_img_tr * epoch)
@@ -322,27 +310,27 @@ def main():
                         choices=['gtav2cityscapes'],
                         help='dataset name (default: gtav2cityscapes)')
     # path to the training dataset
-    parser.add_argument('--src_img_root', type=str, default='F:\\ee5934\\data\\GTA_V\\train_img',
+    parser.add_argument('--src_img_root', type=str, default='/home/zhengfang/data/data/data/GTA_V/train_img',
                         help='path to the source training images')
-    parser.add_argument('--src_label_root', type=str, default='F:\\ee5934\\data\\GTA_V\\train_label',
+    parser.add_argument('--src_label_root', type=str, default='/home/zhengfang/data/data/data/GTA_V/train_label',
                         help='path to the source training labels')
-    parser.add_argument('--tgt_img_root', type=str, default='F:\\ee5934\\data\\CItyscapes\\train_img',
+    parser.add_argument('--tgt_img_root', type=str, default='/home/zhengfang/data/data/data/CItyscapes/train_img',
                         help='path to the target training images')
     # path to the validation dataset
-    parser.add_argument('--val_img_root', type=str, default='F:\\ee5934\\data\\CItyscapes\\train_img',
+    parser.add_argument('--val_img_root', type=str, default='/home/zhengfang/data/data/data/CItyscapes/train_img',
                         help='path to the validation training images')
-    parser.add_argument('--val_label_root', type=str, default='F:\\ee5934\\data\\CItyscapes\\val_label',
+    parser.add_argument('--val_label_root', type=str, default='/home/zhengfang/data/data/data/CItyscapes/val_label',
                         help='path to the validation training labels')
     # path to the test dataset
-    parser.add_argument('--test_img_root', type=str, default='F:\\ee5934\\data\\CItyscapes\\test_img',
+    parser.add_argument('--test_img_root', type=str, default='/home/zhengfang/data/data/data/CItyscapes/test_img',
                         help='path to the test training images')
     parser.add_argument('--test_label_root', type=str, default='',
                         help='path to the test training labels')
     parser.add_argument('--workers', type=int, default=4,
                         metavar='N', help='dataloader threads')
-    parser.add_argument('--base-size', type=int, default=256,
+    parser.add_argument('--base-size', type=int, default=512,
                         help='base image size')
-    parser.add_argument('--crop-size', type=int, default=256,
+    parser.add_argument('--crop-size', type=int, default=512,
                         help='crop image size')
     parser.add_argument('--sync-bn', type=bool, default=None,
                         help='whether to use sync bn (default: auto)')
@@ -354,14 +342,14 @@ def main():
     parser.add_argument('--no_d_loss', type=bool, default=False,
                         help='whether to use domain transfer loss(default: False)')
     # training hyper params
-    parser.add_argument('--epochs', type=int, default=1, metavar='N',
+    parser.add_argument('--epochs', type=int, default=200, metavar='N',
                         help='number of epochs to train (default: auto)')
-    parser.add_argument('--optimizer', type=str, default='SGD',
+    parser.add_argument('--optimizer', type=str, default='Adam',
                         choices = ['SGD','Adam'],
                         help='the method of optimizer (default: SGD)')
     parser.add_argument('--start_epoch', type=int, default=0,
                         metavar='N', help='start epochs (default:0)')
-    parser.add_argument('--batch-size', type=int, default=2,
+    parser.add_argument('--batch-size', type=int, default=16,
                         metavar='N', help='input batch size for \
                                     training (default: auto)')
     parser.add_argument('--test-batch-size', type=int, default=1,

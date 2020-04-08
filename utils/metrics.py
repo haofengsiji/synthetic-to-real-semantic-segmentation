@@ -1,5 +1,5 @@
 import numpy as np
-
+from PIL import Image
 
 class Evaluator(object):
     def __init__(self, num_class):
