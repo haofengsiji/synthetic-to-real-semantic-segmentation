@@ -187,15 +187,16 @@ class Trainer(object):
 
             # BP
             task_loss = self.task_loss(src_output, src_label)
-            d_loss,acc = self.domain_loss(src_d_pred, tgt_d_pred)
-            d_inv_loss = self.domain_inv_loss(src_d_pred, tgt_d_pred)
-            pass
-
-            loss = task_loss + d_loss + 0.5*d_inv_loss
-            loss.backward()
+            task_loss.backward(retain_graph=True)
             self.task_optimizer.step()
+            d_loss, acc = self.domain_loss(src_d_pred, tgt_d_pred)
+            d_loss.backward(retain_graph=True)
             self.d_optimizer.step()
+            d_inv_loss = (self.domain_inv_loss(src_d_pred, tgt_d_pred) \
+                          + self.domain_loss(src_d_pred, tgt_d_pred)[0]) / 2
+            d_inv_loss.backward()
             self.d_inv_optimizer.step()
+            pass
 
             train_task_loss += task_loss.item()
             train_d_loss += d_loss.item()
@@ -332,7 +333,7 @@ def main():
                         help='whether to use sync bn (default: auto)')
     parser.add_argument('--freeze-bn', type=bool, default=False,
                         help='whether to freeze bn parameters (default: False)')
-    parser.add_argument('--loss-type', type=str, default='ce',
+    parser.add_argument('--loss-type', type=str, default='focal',
                         choices=['ce', 'focal'],
                         help='loss func type (default: ce)')
     parser.add_argument('--no_d_loss', type=bool, default=False,
@@ -340,7 +341,7 @@ def main():
     # training hyper params
     parser.add_argument('--epochs', type=int, default=200, metavar='N',
                         help='number of epochs to train (default: auto)')
-    parser.add_argument('--optimizer', type=str, default='SGD',
+    parser.add_argument('--optimizer', type=str, default='Adam',
                         choices = ['SGD','Adam'],
                         help='the method of optimizer (default: SGD)')
     parser.add_argument('--start_epoch', type=int, default=0,
