@@ -173,17 +173,17 @@ class Trainer(object):
             self.d_inv_optimizer.zero_grad()
             self.c_optimizer.zero_grad()
             # source image feature
-            src_high_feature, src_low_feature = self.backbone_model(src_image)
-            src_high_feature = self.assp_model(src_high_feature)
+            src_high_feature_0, src_low_feature = self.backbone_model(src_image)
+            src_high_feature = self.assp_model(src_high_feature_0)
             src_output = F.interpolate(self.y_model(src_high_feature, src_low_feature), src_image.size()[2:], \
                                        mode='bilinear', align_corners=True)
-            src_d_pred = self.d_model(src_high_feature)
+            src_d_pred = self.d_model(src_high_feature_0)
             # target image feature
-            tgt_high_feature, tgt_low_feature = self.backbone_model(tgt_image)
-            tgt_high_feature = self.assp_model(tgt_high_feature)
+            tgt_high_feature_0, tgt_low_feature = self.backbone_model(tgt_image)
+            tgt_high_feature = self.assp_model(tgt_high_feature_0)
             tgt_output = F.interpolate(self.y_model(tgt_high_feature, tgt_low_feature), src_image.size()[2:], \
                                        mode='bilinear', align_corners=True)
-            tgt_d_pred = self.d_model(tgt_high_feature)
+            tgt_d_pred = self.d_model(tgt_high_feature_0)
 
             # BP
             task_loss = self.task_loss(src_output, src_label)
@@ -208,8 +208,6 @@ class Trainer(object):
             self.writer.add_scalar('train/total_loss_iter', task_loss.item()+d_loss.item()+d_inv_loss.item(),\
                                    i + num_img_tr * epoch)
             self.writer.add_scalar('train/task_loss_iter', task_loss.item(), i + num_img_tr * epoch)
-            self.writer.add_scalar('train/d_loss_iter', d_loss.item(), i + num_img_tr * epoch)
-            self.writer.add_scalar('train/d_inv_loss_iter', d_inv_loss.item(), i + num_img_tr * epoch)
             # Show 10 * 3 inference results each epoch
             if i % (num_img_tr // 10) == 0:
                 global_step = i + num_img_tr * epoch
@@ -219,8 +217,6 @@ class Trainer(object):
 
         self.writer.add_scalar('train/total_loss_epoch', train_loss, epoch)
         self.writer.add_scalar('train/task_loss_epoch', train_task_loss, epoch)
-        self.writer.add_scalar('train/d_loss_epoch', train_d_loss, epoch)
-        self.writer.add_scalar('train/d_inv_loss_epoch', task_loss, epoch)
         print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + src_image.data.shape[0]))
         print('Loss: %.3f' % train_loss)
 
@@ -344,7 +340,7 @@ def main():
     # training hyper params
     parser.add_argument('--epochs', type=int, default=200, metavar='N',
                         help='number of epochs to train (default: auto)')
-    parser.add_argument('--optimizer', type=str, default='Adam',
+    parser.add_argument('--optimizer', type=str, default='SGD',
                         choices = ['SGD','Adam'],
                         help='the method of optimizer (default: SGD)')
     parser.add_argument('--start_epoch', type=int, default=0,

@@ -5,10 +5,10 @@ import torch.nn.functional as F
 from modeling.sync_batchnorm.batchnorm import SynchronizedBatchNorm2d
 
 class DomainClassifer(nn.Module):
-    def __init__(self,backbone,BatchNorm):
+    def __init__(self,backbone,BatchNorm,level='high'):
         super(DomainClassifer, self).__init__()
-        if backbone == 'mobilenet':
-            in_channel = 256
+        if backbone == 'mobilenet' and level == 'high':
+            in_channel = 320
         else:
             raise NotImplementedError
 
