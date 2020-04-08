@@ -16,11 +16,11 @@ class Evaluator(object):
         return Acc
 
     def Mean_Intersection_over_Union(self):
-        MIoU = np.diag(self.confusion_matrix) / (
+        IoU = np.diag(self.confusion_matrix) / (
                     np.sum(self.confusion_matrix, axis=1) + np.sum(self.confusion_matrix, axis=0) -
                     np.diag(self.confusion_matrix))
-        MIoU = np.nanmean(MIoU)
-        return MIoU
+        MIoU = np.nanmean(IoU)
+        return MIoU,IoU
 
     def Frequency_Weighted_Intersection_over_Union(self):
         freq = np.sum(self.confusion_matrix, axis=1) / np.sum(self.confusion_matrix)
