@@ -183,21 +183,19 @@ class Trainer(object):
             src_d_pred = self.d_model(src_high_feature)
             tgt_d_pred = self.d_model(tgt_high_feature)
             task_loss = self.task_loss(src_output, src_label)
+            task_loss.backward(retain_graph=True)
+            self.task_optimizer.step()
             if epoch % 2 == 0:
                 da_loss,d_acc = self.domain_loss(src_d_pred,tgt_d_pred)
+                da_loss.backward()
+                self.d_optimizer.step()
             else:
                 d_loss, d_acc = self.domain_loss(src_d_pred, tgt_d_pred)
                 d_inv_loss,_ = self.domain_loss(tgt_d_pred, src_d_pred)
                 da_loss = (d_loss + d_inv_loss)/2
-            pass
-
-            loss = task_loss + da_loss
-            loss.backward()
-            self.task_optimizer.step()
-            if epoch % 2 == 0:
-                self.d_optimizer.step()
-            else:
+                da_loss.backward()
                 self.d_inv_optimizer.step()
+            pass
 
             train_task_loss += task_loss.item()
             train_da_loss += da_loss.item()
@@ -332,7 +330,7 @@ def main():
                         help='whether to use sync bn (default: auto)')
     parser.add_argument('--freeze-bn', type=bool, default=False,
                         help='whether to freeze bn parameters (default: False)')
-    parser.add_argument('--loss-type', type=str, default='ce',
+    parser.add_argument('--loss-type', type=str, default='focal',
                         choices=['ce', 'focal'],
                         help='loss func type (default: ce)')
     parser.add_argument('--no_d_loss', type=bool, default=False,
