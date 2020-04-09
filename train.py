@@ -187,16 +187,16 @@ class Trainer(object):
 
             # BP
             task_loss = self.task_loss(src_output, src_label)
-            task_loss.backward(retain_graph=True)
-            self.task_optimizer.step()
             d_loss, acc = self.domain_loss(src_d_pred, tgt_d_pred)
-            d_loss.backward(retain_graph=True)
-            self.d_optimizer.step()
             d_inv_loss = (self.domain_inv_loss(src_d_pred, tgt_d_pred) \
                           + self.domain_loss(src_d_pred, tgt_d_pred)[0]) / 2
-            d_inv_loss.backward()
-            self.d_inv_optimizer.step()
             pass
+
+            loss = task_loss + d_loss + d_inv_loss
+            loss.backward()
+            self.task_optimizer.step()
+            self.d_optimizer.step()
+            self.d_inv_optimizer.step()
 
             train_task_loss += task_loss.item()
             train_d_loss += d_loss.item()
