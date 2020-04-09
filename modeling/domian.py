@@ -8,7 +8,7 @@ class DomainClassifer(nn.Module):
     def __init__(self,backbone,BatchNorm,level='high'):
         super(DomainClassifer, self).__init__()
         if backbone == 'mobilenet' and level == 'high':
-            in_channel = 256
+            in_channel = 320
         else:
             raise NotImplementedError
 
