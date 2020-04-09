@@ -49,14 +49,10 @@ class DomainLosses(object):
     def __init__(self, batch_average=True, cuda=False):
         self.batch_average = batch_average
         self.cuda = cuda
-    def build_loss(self, mode='no_inv'):
-        """Choices: ['no_inv' or 'inv']"""
-        if mode == 'no_inv':
-            return self.DomainClassiferLoss
-        elif mode == 'inv':
-            return self.DomainInvLoss
-        else:
-            raise NotImplementedError
+
+    def build_loss(self):
+
+        return self.DomainClassiferLoss
 
     # def DomainClassiferLoss(self, src_logit, tgt_logit):
     #     assert src_logit.size() == tgt_logit.size()
@@ -105,31 +101,6 @@ class DomainLosses(object):
         acc = (torch.sum(1 - torch.argmax(src_logit,dim=1)) + torch.sum(torch.argmax(tgt_logit,dim=1))).float()/2/n1/h1/w1
 
         return loss, acc
-
-    def DomainInvLoss(self, src_logit, tgt_logit):
-        assert src_logit.size() == tgt_logit.size()
-        n1, c1, h1, w1 = src_logit.size()
-        n2, c2, h2, w2 = tgt_logit.size()
-        src_target = torch.ones([n1, h1, w1], dtype=src_logit.dtype, layout=src_logit.layout, device=src_logit.device)
-        tgt_target = torch.zeros([n2, h2, w2], dtype=tgt_logit.dtype, layout=tgt_logit.layout, device=tgt_logit.device)
-        criterion = nn.CrossEntropyLoss(reduction='mean')
-        if self.cuda:
-            criterion = criterion.cuda()
-        loss = criterion(src_logit, src_target.long()) + criterion(tgt_logit, tgt_target.long())
-
-        return loss
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # if __name__ == "__main__":

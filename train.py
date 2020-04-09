@@ -64,7 +64,7 @@ class Trainer(object):
             self.task_optimizer = torch.optim.SGD(f_params+y_params, lr= args.lr,
                                              momentum=args.momentum,
                                              weight_decay=args.weight_decay, nesterov=args.nesterov)
-            self.d_optimizer = torch.optim.SGD(d_params, lr= args.lr,
+            self.d_optimizer = torch.optim.SGD(d_params, lr= args.lr*10,
                                           momentum=args.momentum,
                                           weight_decay=args.weight_decay, nesterov=args.nesterov)
             self.d_inv_optimizer = torch.optim.SGD(f_params, lr= args.lr,
@@ -75,7 +75,7 @@ class Trainer(object):
                                           weight_decay=args.weight_decay, nesterov=args.nesterov)
         elif args.optimizer == 'Adam':
             self.task_optimizer = torch.optim.Adam(f_params + y_params, lr=args.lr)
-            self.d_optimizer = torch.optim.Adam(d_params, lr=args.lr)
+            self.d_optimizer = torch.optim.Adam(d_params, lr=args.lr*10)
             self.d_inv_optimizer = torch.optim.Adam(f_params, lr=args.lr)
             self.c_optimizer = torch.optim.Adam(f_params+y_params, lr=args.lr)
         else:
@@ -93,8 +93,7 @@ class Trainer(object):
         else:
             weight = None
         self.task_loss = SegmentationLosses(weight=weight, cuda=args.cuda).build_loss(mode=args.loss_type)
-        self.domain_loss = DomainLosses(cuda=args.cuda).build_loss(mode='no_inv')
-        self.domain_inv_loss = DomainLosses(cuda=args.cuda).build_loss(mode='inv')
+        self.domain_loss = DomainLosses(cuda=args.cuda).build_loss()
         self.ca_loss = ''
 
         # Define Evaluator
@@ -152,8 +151,7 @@ class Trainer(object):
     def training(self, epoch):
         train_loss = 0.0
         train_task_loss = 0.0
-        train_d_loss = 0.0
-        train_d_inv_loss = 0.0
+        train_da_loss = 0.0
         self.backbone_model.train()
         self.assp_model.train()
         self.y_model.train()
@@ -177,46 +175,45 @@ class Trainer(object):
             src_high_feature = self.assp_model(src_high_feature_0)
             src_output = F.interpolate(self.y_model(src_high_feature, src_low_feature), src_image.size()[2:], \
                                        mode='bilinear', align_corners=True)
-            src_d_pred = self.d_model(src_high_feature_0)
             # target image feature
             tgt_high_feature_0, tgt_low_feature = self.backbone_model(tgt_image)
             tgt_high_feature = self.assp_model(tgt_high_feature_0)
-            tgt_output = F.interpolate(self.y_model(tgt_high_feature, tgt_low_feature), src_image.size()[2:], \
+            tgt_output = F.interpolate(self.y_model(tgt_high_feature, tgt_low_feature), tgt_image.size()[2:], \
                                        mode='bilinear', align_corners=True)
-            tgt_d_pred = self.d_model(tgt_high_feature_0)
-
-            # BP
+            src_d_pred = self.d_model(src_high_feature)
+            tgt_d_pred = self.d_model(tgt_high_feature)
             task_loss = self.task_loss(src_output, src_label)
-            d_loss, acc = self.domain_loss(src_d_pred, tgt_d_pred)
-            d_inv_loss = (self.domain_inv_loss(src_d_pred, tgt_d_pred) \
-                          + self.domain_loss(src_d_pred, tgt_d_pred)[0]) / 2
+            task_loss.backward(retain_graph=True)
+            self.task_optimizer.step()
+            if epoch % 2 == 0:
+                da_loss,d_acc = self.domain_loss(src_d_pred,tgt_d_pred)
+                da_loss.backward()
+                self.d_optimizer.step()
+            else:
+                d_loss, d_acc = self.domain_loss(src_d_pred, tgt_d_pred)
+                d_inv_loss,_ = self.domain_loss(tgt_d_pred, src_d_pred)
+                da_loss = (d_loss + d_inv_loss)/2
+                da_loss.backward()
+                self.d_inv_optimizer.step()
             pass
 
-            loss = task_loss + d_loss + d_inv_loss
-            loss.backward()
-            self.task_optimizer.step()
-            self.d_optimizer.step()
-            self.d_inv_optimizer.step()
-
             train_task_loss += task_loss.item()
-            train_d_loss += d_loss.item()
-            train_d_inv_loss += d_inv_loss.item()
-            train_loss += task_loss.item() + d_loss.item() + d_inv_loss.item()
-            tbar.set_description('Train loss: %.3f t_l: %.3f d_ls: %.3f d_inv_l: %.3f d_acc: %.2f' \
-                                 % (train_loss / (i + 1),train_task_loss / (i + 1),\
-                                    train_d_loss / (i + 1),train_d_inv_loss / (i + 1), acc.item()*100))
+            train_da_loss += da_loss.item()
+            train_loss += task_loss.item() + da_loss.item()
 
-            self.writer.add_scalar('train/total_loss_iter', task_loss.item()+d_loss.item()+d_inv_loss.item(),\
-                                   i + num_img_tr * epoch)
+            tbar.set_description('Train loss: %.3f t_loss: %.3f da_loss: %.3f , d_acc: %.2f' \
+                                 % (train_loss / (i + 1),train_task_loss / (i + 1),\
+                                    train_da_loss / (i + 1), d_acc*100))
+
             self.writer.add_scalar('train/task_loss_iter', task_loss.item(), i + num_img_tr * epoch)
             # Show 10 * 3 inference results each epoch
             if i % (num_img_tr // 10) == 0:
                 global_step = i + num_img_tr * epoch
                 image = torch.cat([src_image,tgt_image],dim=0)
-                output = torch.cat([tgt_output,tgt_output],dim=0)
+                output = torch.cat([src_output,tgt_output],dim=0)
                 self.summary.visualize_image(self.writer, self.args.dataset, image, src_label, output, global_step)
 
-        self.writer.add_scalar('train/total_loss_epoch', train_loss, epoch)
+
         self.writer.add_scalar('train/task_loss_epoch', train_task_loss, epoch)
         print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + src_image.data.shape[0]))
         print('Loss: %.3f' % train_loss)
@@ -362,7 +359,7 @@ def main():
                         metavar='M', help='momentum (default: 0.9)')
     parser.add_argument('--weight-decay', type=float, default=5e-4,
                         metavar='M', help='w-decay (default: 5e-4)')
-    parser.add_argument('--nesterov', action='store_true', default=False,
+    parser.add_argument('--nesterov', action='store_true', default=True,
                         help='whether use nesterov (default: False)')
     parser.add_argument('--use_balanced_weights', action='store_true', default=True,
                         help='whether use balanced weights (default: True)')
