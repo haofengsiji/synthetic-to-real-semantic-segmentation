@@ -193,7 +193,7 @@ class Trainer(object):
                 da_loss = (d_loss + d_inv_loss)/2
             pass
 
-            loss = loss + 2*da_loss
+            loss = task_loss + 2*da_loss
             loss.backward()
             self.task_loss.step()
             if epoch % 3 == 0:
@@ -347,7 +347,7 @@ def main():
                         help='the method of optimizer (default: SGD)')
     parser.add_argument('--start_epoch', type=int, default=0,
                         metavar='N', help='start epochs (default:0)')
-    parser.add_argument('--batch-size', type=int, default=16,
+    parser.add_argument('--batch-size', type=int, default=8,
                         metavar='N', help='input batch size for \
                                     training (default: auto)')
     parser.add_argument('--test-batch-size', type=int, default=1,
