@@ -1,9 +1,0 @@
-datset:gtav
-backbone:mobilenet
-out_stride:16
-lr:0.005
-lr_scheduler:poly
-loss_type:ce
-epoch:200
-base_size:512
-crop_size:512
