@@ -183,8 +183,6 @@ class Trainer(object):
             src_d_pred = self.d_model(src_high_feature)
             tgt_d_pred = self.d_model(tgt_high_feature)
             task_loss = self.task_loss(src_output, src_label)
-            task_loss.backward(retain_graph=True)
-            self.task_optimizer.step()
             if epoch % 3 == 0:
                 da_loss,d_acc = self.domain_loss(src_d_pred,tgt_d_pred)
             else:
@@ -195,7 +193,7 @@ class Trainer(object):
 
             loss = task_loss + 2*da_loss
             loss.backward()
-            self.task_loss.step()
+            self.task_optimizer.step()
             if epoch % 3 == 0:
                 self.d_optimizer.step()
             else:
