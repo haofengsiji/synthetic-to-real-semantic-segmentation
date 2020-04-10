@@ -185,17 +185,21 @@ class Trainer(object):
             task_loss = self.task_loss(src_output, src_label)
             task_loss.backward(retain_graph=True)
             self.task_optimizer.step()
-            if epoch % 2 == 0:
+            if epoch % 3 == 0:
                 da_loss,d_acc = self.domain_loss(src_d_pred,tgt_d_pred)
-                da_loss.backward()
-                self.d_optimizer.step()
             else:
                 d_loss, d_acc = self.domain_loss(src_d_pred, tgt_d_pred)
                 d_inv_loss,_ = self.domain_loss(tgt_d_pred, src_d_pred)
                 da_loss = (d_loss + d_inv_loss)/2
-                da_loss.backward()
-                self.d_inv_optimizer.step()
             pass
+
+            loss = loss + 2*da_loss
+            loss.backward()
+            self.task_loss.step()
+            if epoch % 3 == 0:
+                self.d_optimizer.step()
+            else:
+                self.d_inv_optimizer.step()
 
             train_task_loss += task_loss.item()
             train_da_loss += da_loss.item()
@@ -372,7 +376,7 @@ def main():
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
     # checking point
-    parser.add_argument('--resume', type=str, default=None,
+    parser.add_argument('--resume', type=str, default='/home/zhengfang/proj/synthetic-to-real-semantic-segmentation/run/gtav2cityscapes/deeplab-mobilenet/experiment_10/checkpoint.pth.tar',
                         help='put the path to resuming file if needed')
     parser.add_argument('--checkname', type=str, default=None,
                         help='set the checkpoint name')
