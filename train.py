@@ -151,7 +151,8 @@ class Trainer(object):
     def training(self, epoch):
         train_loss = 0.0
         train_task_loss = 0.0
-        train_da_loss = 0.0
+        train_d_loss = 0.0
+        train_d_inv_loss = 0.0
         self.backbone_model.train()
         self.assp_model.train()
         self.y_model.train()
@@ -183,29 +184,24 @@ class Trainer(object):
             src_d_pred = self.d_model(src_high_feature)
             tgt_d_pred = self.d_model(tgt_high_feature)
             task_loss = self.task_loss(src_output, src_label)
-            if epoch % 3 == 0:
-                da_loss,d_acc = self.domain_loss(src_d_pred,tgt_d_pred)
-            else:
-                d_loss, d_acc = self.domain_loss(src_d_pred, tgt_d_pred)
-                d_inv_loss,_ = self.domain_loss(tgt_d_pred, src_d_pred)
-                da_loss = (d_loss + d_inv_loss)/2
-            pass
+            d_loss,d_acc = self.domain_loss(src_d_pred,tgt_d_pred)
+            d_inv_loss,_ = self.domain_loss(tgt_d_pred, src_d_pred)
+            d_inv_loss = (d_loss + d_inv_loss)/2
 
-            loss = task_loss + 2*da_loss
+            loss = task_loss + d_loss + d_inv_loss
             loss.backward()
             self.task_optimizer.step()
-            if epoch % 3 == 0:
-                self.d_optimizer.step()
-            else:
-                self.d_inv_optimizer.step()
+            self.d_optimizer.step()
+            self.d_inv_optimizer.step()
 
             train_task_loss += task_loss.item()
-            train_da_loss += da_loss.item()
-            train_loss += task_loss.item() + da_loss.item()
+            train_d_loss += d_loss.item()
+            train_d_inv_loss += d_inv_loss.item()
+            train_loss += task_loss.item() + d_loss.item() + d_inv_loss.item()
 
-            tbar.set_description('Train loss: %.3f t_loss: %.3f da_loss: %.3f , d_acc: %.2f' \
+            tbar.set_description('Train loss: %.3f t_loss: %.3f d_loss: %.3f , d_inv_loss: %.3f  d_acc: %.2f' \
                                  % (train_loss / (i + 1),train_task_loss / (i + 1),\
-                                    train_da_loss / (i + 1), d_acc*100))
+                                    train_d_loss / (i + 1), train_d_inv_loss / (i + 1), d_acc*100))
 
             self.writer.add_scalar('train/task_loss_iter', task_loss.item(), i + num_img_tr * epoch)
             # Show 10 * 3 inference results each epoch
