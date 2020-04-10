@@ -328,7 +328,7 @@ def main():
                         help='whether to use sync bn (default: auto)')
     parser.add_argument('--freeze-bn', type=bool, default=False,
                         help='whether to freeze bn parameters (default: False)')
-    parser.add_argument('--loss-type', type=str, default='focal',
+    parser.add_argument('--loss-type', type=str, default='ce',
                         choices=['ce', 'focal'],
                         help='loss func type (default: ce)')
     parser.add_argument('--no_d_loss', type=bool, default=False,
