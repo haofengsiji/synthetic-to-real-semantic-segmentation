@@ -2,14 +2,17 @@ import os
 from tqdm import tqdm
 import numpy as np
 
-def calculate_weigths_labels(dataloader, num_classes, classes_weights_path):
+def calculate_weigths_labels(dataloader, num_classes, classes_weights_path , dataset):
     # Create an instance from the data loader
     z = np.zeros((num_classes,))
     # Initialize tqdm
     tqdm_batch = tqdm(dataloader)
     print('Calculating classes weights')
     for sample in tqdm_batch:
-        y = sample['src_label']
+        if dataset != 'gtav':
+            y = sample['src_label']
+        else:
+            y = sample['label']
         y = y.detach().cpu().numpy()
         mask = (y >= 0) & (y < num_classes)
         labels = y[mask].astype(np.uint8)
