@@ -27,6 +27,9 @@ def decode_segmap(label_mask, dataset, plot=False):
     elif dataset == 'gtav2cityscapes':
         n_classes = 19
         label_colours = get_cityscapes_labels()
+    elif dataset == 'gtav':
+        n_classes = 19
+        label_colours = get_cityscapes_labels()
     else:
         raise NotImplementedError
 

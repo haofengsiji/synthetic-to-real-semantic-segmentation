@@ -196,6 +196,10 @@ class Trainer(object):
                 d_loss, d_acc = self.domain_loss(src_d_pred, tgt_d_pred)
                 d_inv_loss, _ = self.domain_loss(tgt_d_pred, src_d_pred)
                 d_inv_loss = (d_loss + d_inv_loss) / 2
+            else:
+                d_acc = 0
+                d_loss = torch.tensor(0.0)
+                d_inv_loss = torch.tensor(0.0)
 
             loss = task_loss
             loss.backward()
@@ -214,8 +218,12 @@ class Trainer(object):
             # Show 10 * 3 inference results each epoch
             if i % (num_img_tr // 10) == 0:
                 global_step = i + num_img_tr * epoch
-                image = torch.cat([src_image,tgt_image],dim=0)
-                output = torch.cat([src_output,tgt_output],dim=0)
+                if self.args.dataset != 'gtav':
+                    image = torch.cat([src_image,tgt_image],dim=0)
+                    output = torch.cat([src_output,tgt_output],dim=0)
+                else:
+                    image = src_image
+                    output = src_output
                 self.summary.visualize_image(self.writer, self.args.dataset, image, src_label, output, global_step)
 
 
@@ -377,7 +385,7 @@ def main():
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
     # checking point
-    parser.add_argument('--resume', type=str, default='/home/zhengfang/proj/synthetic-to-real-semantic-segmentation/run/gtav2cityscapes/deeplab-mobilenet/experiment_10/checkpoint.pth.tar',
+    parser.add_argument('--resume', type=str, default=None,
                         help='put the path to resuming file if needed')
     parser.add_argument('--checkname', type=str, default=None,
                         help='set the checkpoint name')
