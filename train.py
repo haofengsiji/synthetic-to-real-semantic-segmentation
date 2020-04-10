@@ -407,6 +407,7 @@ def main():
     if args.epochs is None:
         epoches = {
             'gtav2cityscapes': 200,
+            'gtav':200
         }
         args.epochs = epoches[args.dataset.lower()]
 
@@ -419,6 +420,7 @@ def main():
     if args.lr is None:
         lrs = {
             'gtav2cityscapes': 0.01,
+            'gtav':0.01
         }
         args.lr = lrs[args.dataset.lower()] / (4 * len(args.gpu_ids)) * args.batch_size
 
