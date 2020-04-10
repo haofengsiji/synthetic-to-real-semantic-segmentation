@@ -160,9 +160,15 @@ class Trainer(object):
         tbar = tqdm(self.train_loader)
         num_img_tr = len(self.train_loader)
         for i, sample in enumerate(tbar):
-            src_image, src_label, tgt_image = sample['src_image'], sample['src_label'], sample['tgt_image']
+            if self.args.dataset == 'gtav':
+                src_image,src_label = sample['image'], sample['label']
+            else:
+                src_image, src_label, tgt_image = sample['src_image'], sample['src_label'], sample['tgt_image']
             if self.args.cuda:
-                src_image, src_label, tgt_image  = src_image.cuda(), src_label.cuda(), tgt_image.cuda()
+                if self.args.dataset != 'gtav':
+                    src_image, src_label, tgt_image  = src_image.cuda(), src_label.cuda(), tgt_image.cuda()
+                else:
+                    src_image, src_label = src_image.cuda(), src_label.cuda()
             self.scheduler(self.task_optimizer, i, epoch, self.best_pred)
             self.scheduler(self.d_optimizer, i, epoch, self.best_pred)
             self.scheduler(self.d_inv_optimizer, i, epoch, self.best_pred)
@@ -176,23 +182,24 @@ class Trainer(object):
             src_high_feature = self.assp_model(src_high_feature_0)
             src_output = F.interpolate(self.y_model(src_high_feature, src_low_feature), src_image.size()[2:], \
                                        mode='bilinear', align_corners=True)
-            # target image feature
-            tgt_high_feature_0, tgt_low_feature = self.backbone_model(tgt_image)
-            tgt_high_feature = self.assp_model(tgt_high_feature_0)
-            tgt_output = F.interpolate(self.y_model(tgt_high_feature, tgt_low_feature), tgt_image.size()[2:], \
-                                       mode='bilinear', align_corners=True)
-            src_d_pred = self.d_model(src_high_feature)
-            tgt_d_pred = self.d_model(tgt_high_feature)
-            task_loss = self.task_loss(src_output, src_label)
-            d_loss,d_acc = self.domain_loss(src_d_pred,tgt_d_pred)
-            d_inv_loss,_ = self.domain_loss(tgt_d_pred, src_d_pred)
-            d_inv_loss = (d_loss + d_inv_loss)/2
 
-            loss = task_loss + d_loss + d_inv_loss
+            src_d_pred = self.d_model(src_high_feature)
+            task_loss = self.task_loss(src_output, src_label)
+
+            if self.args.dataset != 'gtav':
+                # target image feature
+                tgt_high_feature_0, tgt_low_feature = self.backbone_model(tgt_image)
+                tgt_high_feature = self.assp_model(tgt_high_feature_0)
+                tgt_output = F.interpolate(self.y_model(tgt_high_feature, tgt_low_feature), tgt_image.size()[2:], \
+                                           mode='bilinear', align_corners=True)
+                tgt_d_pred = self.d_model(tgt_high_feature)
+                d_loss, d_acc = self.domain_loss(src_d_pred, tgt_d_pred)
+                d_inv_loss, _ = self.domain_loss(tgt_d_pred, src_d_pred)
+                d_inv_loss = (d_loss + d_inv_loss) / 2
+
+            loss = task_loss
             loss.backward()
             self.task_optimizer.step()
-            self.d_optimizer.step()
-            self.d_inv_optimizer.step()
 
             train_task_loss += task_loss.item()
             train_d_loss += d_loss.item()
@@ -298,8 +305,8 @@ def main():
                         help='backbone name (default: mobilenet)')
     parser.add_argument('--out-stride', type=int, default=16,
                         help='network output stride (default: 16)')
-    parser.add_argument('--dataset', type=str, default='gtav2cityscapes',
-                        choices=['gtav2cityscapes'],
+    parser.add_argument('--dataset', type=str, default='gtav',
+                        choices=['gtav2cityscapes','gtav'],
                         help='dataset name (default: gtav2cityscapes)')
     # path to the training dataset
     parser.add_argument('--src_img_root', type=str, default='/home/zhengfang/data/data/data/GTA_V/train_img',
@@ -336,12 +343,12 @@ def main():
     # training hyper params
     parser.add_argument('--epochs', type=int, default=200, metavar='N',
                         help='number of epochs to train (default: auto)')
-    parser.add_argument('--optimizer', type=str, default='Adam',
+    parser.add_argument('--optimizer', type=str, default='SGD',
                         choices = ['SGD','Adam'],
                         help='the method of optimizer (default: SGD)')
     parser.add_argument('--start_epoch', type=int, default=0,
                         metavar='N', help='start epochs (default:0)')
-    parser.add_argument('--batch-size', type=int, default=8,
+    parser.add_argument('--batch-size', type=int, default=2,
                         metavar='N', help='input batch size for \
                                     training (default: auto)')
     parser.add_argument('--test-batch-size', type=int, default=1,
@@ -357,7 +364,7 @@ def main():
                         metavar='M', help='momentum (default: 0.9)')
     parser.add_argument('--weight-decay', type=float, default=5e-4,
                         metavar='M', help='w-decay (default: 5e-4)')
-    parser.add_argument('--nesterov', action='store_true', default=True,
+    parser.add_argument('--nesterov', action='store_true', default=False,
                         help='whether use nesterov (default: False)')
     parser.add_argument('--use_balanced_weights', action='store_true', default=True,
                         help='whether use balanced weights (default: True)')
