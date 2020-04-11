@@ -161,14 +161,14 @@ class Trainer(object):
         tbar = tqdm(self.train_loader)
         num_img_tr = len(self.train_loader)
         for i, sample in enumerate(tbar):
-            try:
+            if self.args.dataset == 'gtav':
+                src_image,src_label = sample['image'], sample['label']
+            else:
                 src_image, src_label, tgt_image = sample['src_image'], sample['src_label'], sample['tgt_image']
-            except:
-                src_image, src_label = sample['image'], sample['label']
             if self.args.cuda:
-                try:
+                if self.args.dataset != 'gtav':
                     src_image, src_label, tgt_image  = src_image.cuda(), src_label.cuda(), tgt_image.cuda()
-                except:
+                else:
                     src_image, src_label = src_image.cuda(), src_label.cuda()
             self.scheduler(self.task_optimizer, i, epoch, self.best_pred)
             self.scheduler(self.d_optimizer, i, epoch, self.best_pred)
@@ -187,7 +187,7 @@ class Trainer(object):
             src_d_pred = self.d_model(src_high_feature)
             task_loss = self.task_loss(src_output, src_label)
 
-            try:
+            if self.args.dataset != 'gtav':
                 # target image feature
                 tgt_high_feature_0, tgt_low_feature = self.backbone_model(tgt_image)
                 tgt_high_feature = self.assp_model(tgt_high_feature_0)
@@ -204,10 +204,10 @@ class Trainer(object):
                 self.d_optimizer.step()
                 d_inv_loss.backward()
                 self.d_inv_optimizer.step()
-            except:
+            else:
+                d_acc = 0
                 d_loss = torch.tensor(0.0)
                 d_inv_loss = torch.tensor(0.0)
-                d_acc = 0
                 loss = task_loss
                 loss.backward()
                 self.task_optimizer.step()
@@ -342,9 +342,9 @@ def main():
                         help='path to the test training labels')
     parser.add_argument('--workers', type=int, default=4,
                         metavar='N', help='dataloader threads')
-    parser.add_argument('--base-size', type=int, default=640,
+    parser.add_argument('--base-size', type=int, default=513,
                         help='base image size')
-    parser.add_argument('--crop-size', type=int, default=640,
+    parser.add_argument('--crop-size', type=int, default=513,
                         help='crop image size')
     parser.add_argument('--sync-bn', type=bool, default=None,
                         help='whether to use sync bn (default: auto)')
