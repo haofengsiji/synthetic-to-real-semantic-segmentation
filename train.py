@@ -161,14 +161,14 @@ class Trainer(object):
         tbar = tqdm(self.train_loader)
         num_img_tr = len(self.train_loader)
         for i, sample in enumerate(tbar):
-            if self.args.dataset == 'gtav':
-                src_image,src_label = sample['image'], sample['label']
-            else:
+            try:
                 src_image, src_label, tgt_image = sample['src_image'], sample['src_label'], sample['tgt_image']
+            except:
+                src_image, src_label = sample['image'], sample['label']
             if self.args.cuda:
-                if self.args.dataset != 'gtav':
+                try:
                     src_image, src_label, tgt_image  = src_image.cuda(), src_label.cuda(), tgt_image.cuda()
-                else:
+                except:
                     src_image, src_label = src_image.cuda(), src_label.cuda()
             self.scheduler(self.task_optimizer, i, epoch, self.best_pred)
             self.scheduler(self.d_optimizer, i, epoch, self.best_pred)
@@ -187,18 +187,14 @@ class Trainer(object):
             src_d_pred = self.d_model(src_high_feature)
             task_loss = self.task_loss(src_output, src_label)
 
-            if self.args.dataset != 'gtav':
+            try:
                 # target image feature
                 tgt_high_feature_0, tgt_low_feature = self.backbone_model(tgt_image)
                 tgt_high_feature = self.assp_model(tgt_high_feature_0)
                 tgt_output = F.interpolate(self.y_model(tgt_high_feature, tgt_low_feature), tgt_image.size()[2:], \
                                            mode='bilinear', align_corners=True)
                 tgt_d_pred = self.d_model(tgt_high_feature)
-            else:
-                d_acc = 0
-                d_loss = torch.tensor(0.0)
-                d_inv_loss = torch.tensor(0.0)
-            if self.args.dataset != 'gtav':
+
                 d_loss,d_acc = self.domain_loss(src_d_pred, tgt_d_pred)
                 d_inv_loss, _ = self.domain_loss(tgt_d_pred, src_d_pred)
                 d_inv_loss = (d_loss + d_inv_loss)/2
@@ -208,7 +204,10 @@ class Trainer(object):
                 self.d_optimizer.step()
                 d_inv_loss.backward()
                 self.d_inv_optimizer.step()
-            else:
+            except:
+                d_loss = torch.tensor(0.0)
+                d_inv_loss = torch.tensor(0.0)
+                d_acc = 0
                 loss = task_loss
                 loss.backward()
                 self.task_optimizer.step()
