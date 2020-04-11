@@ -20,8 +20,7 @@ class DomainClassifer(nn.Module):
                                       BatchNorm(1024),
                                       nn.ReLU(),
                                       nn.Dropout(0.5))
-        self.DC_adnn3 = nn.Sequential(nn.Conv2d(1024, 1, kernel_size=3, stride=1, padding=1, bias=True),
-                                      nn.Sigmoid())
+        self.DC_adnn3 = nn.Conv2d(1024, 2, kernel_size=3, stride=1, padding=1, bias=True)
 
 
         self._init_weight()

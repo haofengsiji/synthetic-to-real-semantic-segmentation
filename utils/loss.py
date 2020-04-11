@@ -56,7 +56,9 @@ class DomainLosses(object):
 
     def DomainClassiferLoss(self, source, target):
         assert source.size() == target.size()
-        loss = torch.mean(-torch.log(source) - torch.log(1 - target))
+        source_p_theta = F.softmax(source, dim=1)
+        target_p_theta = F.softmax(target, dim=1)
+        loss = torch.mean(-torch.log(source_p_theta[0]) - torch.log(1 - target_p_theta[0]))
         acc = torch.mean(((source>=0.5).float() + (target<0.5).float())/2)
 
         return loss,acc
