@@ -199,21 +199,15 @@ class Trainer(object):
                 d_loss = torch.tensor(0.0)
                 d_inv_loss = torch.tensor(0.0)
             if self.args.dataset != 'gtav':
-                if epoch % 2 == 0:
-                    d_loss, d_acc = self.domain_loss(src_d_pred, tgt_d_pred)
-                    d_inv_loss = torch.tensor(0.0)
-                    loss = task_loss + d_loss
-                    loss.backward()
-                    self.task_optimizer.step()
-                    self.d_optimizer.step()
-                else:
-                    d_loss,d_acc = self.domain_loss(src_d_pred, tgt_d_pred)
-                    d_inv_loss, _ = self.domain_loss(tgt_d_pred, src_d_pred)
-                    d_inv_loss = (d_loss + d_inv_loss) / 2
-                    loss = task_loss + d_inv_loss
-                    loss.backward()
-                    self.task_optimizer.step()
-                    self.d_inv_optimizer.step()
+                d_loss,d_acc = self.domain_loss(src_d_pred, tgt_d_pred)
+                d_inv_loss, _ = self.domain_loss(tgt_d_pred, src_d_pred)
+                d_inv_loss = (d_loss + d_inv_loss)/2
+                task_loss.backward(retain_graph=True)
+                self.task_optimizer.step()
+                d_loss.backward(retain_graph=True)
+                self.d_optimizer.step()
+                d_inv_loss.backward()
+                self.d_inv_optimizer.step()
             else:
                 loss = task_loss
                 loss.backward()
@@ -370,7 +364,7 @@ def main():
                         help='the method of optimizer (default: SGD)')
     parser.add_argument('--start_epoch', type=int, default=0,
                         metavar='N', help='start epochs (default:0)')
-    parser.add_argument('--batch-size', type=int, default=2,
+    parser.add_argument('--batch-size', type=int, default=4,
                         metavar='N', help='input batch size for \
                                     training (default: auto)')
     parser.add_argument('--test-batch-size', type=int, default=1,
