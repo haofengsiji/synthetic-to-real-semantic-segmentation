@@ -370,7 +370,7 @@ def main():
                         metavar='N', help='input batch size for \
                                     testing (default: auto)')
     # optimizer params
-    parser.add_argument('--lr', type=float, default=None, metavar='LR',
+    parser.add_argument('--lr', type=float, default=5e-4, metavar='LR',
                         help='learning rate (default: auto)')
     parser.add_argument('--lr-scheduler', type=str, default='poly',
                         choices=['poly', 'step', 'cos'],
@@ -434,8 +434,8 @@ def main():
 
     if args.lr is None:
         lrs = {
-            'gtav2cityscapes': 0.01,
-            'gtav':0.01
+            'gtav2cityscapes': 0.001,
+            'gtav':0.001
         }
         args.lr = lrs[args.dataset.lower()] / (4 * len(args.gpu_ids)) * args.batch_size
 
