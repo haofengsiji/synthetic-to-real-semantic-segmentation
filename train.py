@@ -199,7 +199,7 @@ class Trainer(object):
                 d_loss = torch.tensor(0.0)
                 d_inv_loss = torch.tensor(0.0)
             if self.args.dataset != 'gtav':
-                if i%2 == 0:
+                if epoch % 2 == 0:
                     d_loss, d_acc = self.domain_loss(src_d_pred, tgt_d_pred)
                     d_inv_loss = torch.tensor(0.0)
                     loss = task_loss + d_loss
