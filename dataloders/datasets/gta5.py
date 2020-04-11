@@ -21,6 +21,7 @@ class GTA5(data.Dataset):
         self.files = {}
 
         self.files['source'] = self.recursive_glob(rootdir=self.src_img_root, suffix='.png')
+        random.shuffle(self.files['source'])
         if split == 'train':
             self.files['source'] = self.files['source'][0:int(len(self.files['source'])*0.7)]
         elif split == 'val':

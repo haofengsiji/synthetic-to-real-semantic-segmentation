@@ -54,53 +54,33 @@ class DomainLosses(object):
 
         return self.DomainClassiferLoss
 
+    def DomainClassiferLoss(self, source, target):
+        assert source.size() == target.size()
+        source_p_theta = F.softmax(source, dim=1)
+        target_p_theta = F.softmax(target, dim=1)
+        n, c, h, w = source.size()
+        real = torch.ones([n, h, w], dtype=source.dtype, layout=source.layout, device=source.device)
+        log_source = -F.nll_loss(source_p_theta,real.long())
+        log_target = -F.nll_loss(1 - target_p_theta.data,real.long())
+
+        sum_source = log_source.sum()
+        sum_target = log_target.sum()
+
+        return sum_source + sum_target
+
     # def DomainClassiferLoss(self, src_logit, tgt_logit):
     #     assert src_logit.size() == tgt_logit.size()
     #     n1, c1, h1, w1 = src_logit.size()
     #     n2, c2, h2, w2 = tgt_logit.size()
-    #     valid = torch.zeros([n1, h1, w1], dtype=src_logit.dtype, layout=src_logit.layout, device=src_logit.device)
-    #     fake = torch.ones([n2, h2, w2], dtype=tgt_logit.dtype, layout=tgt_logit.layout, device=tgt_logit.device)
-    #     src_target = torch.stack([valid, fake], dim=1)
-    #     tgt_target = torch.stack([fake, valid],dim=1)
-    #     logit = torch.sigmoid(torch.cat([src_logit, tgt_logit]))
-    #     target = torch.cat([src_target, tgt_target])
-    #     criterion = nn.BCELoss(reduction='mean')
+    #     src_target = torch.zeros([n1, h1, w1], dtype=src_logit.dtype, layout=src_logit.layout, device=src_logit.device)
+    #     tgt_target = torch.ones([n2, h2, w2], dtype=tgt_logit.dtype, layout=tgt_logit.layout, device=tgt_logit.device)
+    #     criterion = nn.CrossEntropyLoss(reduction='mean')
     #     if self.cuda:
     #         criterion = criterion.cuda()
-    #     loss = criterion(logit, target)
+    #     loss = criterion(src_logit, src_target.long()) + criterion(tgt_logit, tgt_target.long())
+    #     acc = (torch.sum(1 - torch.argmax(src_logit,dim=1)) + torch.sum(torch.argmax(tgt_logit,dim=1))).float()/2/n1/h1/w1
     #
-    #     return loss
-    #
-    # def DomainInvLoss(self, src_logit, tgt_logit):
-    #     assert src_logit.size() == tgt_logit.size()
-    #     n1, c1, h1, w1 = src_logit.size()
-    #     n2, c2, h2, w2 = tgt_logit.size()
-    #     valid = torch.ones([n1,h1,w1], dtype=src_logit.dtype, layout=src_logit.layout, device=src_logit.device)
-    #     fake = torch.zeros([n2,h2,w2], dtype=tgt_logit.dtype, layout=tgt_logit.layout, device=tgt_logit.device)
-    #     src_target = torch.stack([valid, fake], dim=1)
-    #     tgt_target = torch.stack([fake, valid], dim=1)
-    #     logit = torch.sigmoid(torch.cat([src_logit, tgt_logit]))
-    #     target = torch.cat([src_target, tgt_target])
-    #     criterion = nn.BCELoss(reduction = 'mean')
-    #     if self.cuda:
-    #         criterion = criterion.cuda()
-    #     loss = criterion(logit, target)
-    #
-    #     return loss
-
-    def DomainClassiferLoss(self, src_logit, tgt_logit):
-        assert src_logit.size() == tgt_logit.size()
-        n1, c1, h1, w1 = src_logit.size()
-        n2, c2, h2, w2 = tgt_logit.size()
-        src_target = torch.zeros([n1, h1, w1], dtype=src_logit.dtype, layout=src_logit.layout, device=src_logit.device)
-        tgt_target = torch.ones([n2, h2, w2], dtype=tgt_logit.dtype, layout=tgt_logit.layout, device=tgt_logit.device)
-        criterion = nn.CrossEntropyLoss(reduction='mean')
-        if self.cuda:
-            criterion = criterion.cuda()
-        loss = criterion(src_logit, src_target.long()) + criterion(tgt_logit, tgt_target.long())
-        acc = (torch.sum(1 - torch.argmax(src_logit,dim=1)) + torch.sum(torch.argmax(tgt_logit,dim=1))).float()/2/n1/h1/w1
-
-        return loss, acc
+    #     return loss, acc
 
 
 # if __name__ == "__main__":
@@ -113,12 +93,12 @@ class DomainLosses(object):
 
 if __name__ == "__main__":
     loss = DomainLosses(cuda=True)
-    a = torch.ones(1, 1, 7, 7).cuda()*-1
+    a = torch.ones(1, 1, 7, 7).cuda()*0
     b = torch.ones(1, 1, 7, 7).cuda()*1
     src = torch.cat([a,b],dim=1)
     tgt = torch.cat([b,a],dim=1)
     print(loss.DomainClassiferLoss(src, tgt).item())
-    print(loss.DomainInvLoss(src, tgt).item())
+    print(loss.DomainClassiferLoss(tgt, src).item())
 
 
 
