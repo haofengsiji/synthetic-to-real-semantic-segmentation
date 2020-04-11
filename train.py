@@ -207,8 +207,7 @@ class Trainer(object):
                     self.task_optimizer.step()
                     self.d_optimizer.step()
                 else:
-                    d_acc = 0
-                    d_loss = torch.tensor(0.0)
+                    d_loss,d_acc = self.domain_loss(src_d_pred, tgt_d_pred)
                     d_inv_loss, _ = self.domain_loss(tgt_d_pred, src_d_pred)
                     d_inv_loss = (d_loss + d_inv_loss) / 2
                     loss = task_loss + d_inv_loss

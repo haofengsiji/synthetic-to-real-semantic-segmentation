@@ -65,8 +65,8 @@ class DomainLosses(object):
 
         sum_source = log_source.sum()
         sum_target = log_target.sum()
-
-        return sum_source + sum_target
+        acc = torch.mean((torch.argmax(source,dim=1).float() + (1 - torch.argmax(target,dim=1).float()))/2).item()
+        return sum_source + sum_target,acc
 
     # def DomainClassiferLoss(self, src_logit, tgt_logit):
     #     assert src_logit.size() == tgt_logit.size()
@@ -97,8 +97,8 @@ if __name__ == "__main__":
     b = torch.ones(1, 1, 7, 7).cuda()*1
     src = torch.cat([a,b],dim=1)
     tgt = torch.cat([b,a],dim=1)
-    print(loss.DomainClassiferLoss(src, tgt).item())
-    print(loss.DomainClassiferLoss(tgt, src).item())
+    d_loss,acc = loss.DomainClassiferLoss(src, tgt)
+    print(d_loss,acc)
 
 
 
