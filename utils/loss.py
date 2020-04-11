@@ -54,20 +54,36 @@ class DomainLosses(object):
 
         return self.DomainClassiferLoss
 
-    def DomainClassiferLoss(self, source, target):
-        assert source.size() == target.size()
-        source_p_theta = F.softmax(source, dim=1)
-        target_p_theta = F.softmax(target, dim=1)
-        loss = torch.mean(-torch.log(source_p_theta[0]) - torch.log(1 - target_p_theta[0]))
-        acc = torch.mean(((source>=0.5).float() + (target<0.5).float())/2)
+    def DomainClassiferLoss(self, src_logit, tgt_logit):
+        assert src_logit.size() == tgt_logit.size()
+        n1, c1, h1, w1 = src_logit.size()
+        n2, c2, h2, w2 = tgt_logit.size()
+        src_target = torch.zeros([n1, h1, w1], dtype=src_logit.dtype, layout=src_logit.layout, device=src_logit.device)
+        tgt_target = torch.ones([n2, h2, w2], dtype=tgt_logit.dtype, layout=tgt_logit.layout, device=tgt_logit.device)
+        criterion = nn.CrossEntropyLoss(reduction='mean')
+        if self.cuda:
+            criterion = criterion.cuda()
+        loss = criterion(src_logit, src_target.long()) + criterion(tgt_logit, tgt_target.long())
+        acc = (torch.sum(1 - torch.argmax(src_logit,dim=1)) + torch.sum(torch.argmax(tgt_logit,dim=1))).float()/2/n1/h1/w1
 
-        return loss,acc
+        return loss, acc.item()
+
+
+# if __name__ == "__main__":
+#     loss = SegmentationLosses(cuda=True)
+#     a = torch.rand(1, 3, 7, 7).cuda()
+#     b = torch.rand(1, 7, 7).cuda()
+#     print(loss.CrossEntropyLoss(a, b).item())
+#     print(loss.FocalLoss(a, b, gamma=0, alpha=None).item())
+#     print(loss.FocalLoss(a, b, gamma=2, alpha=0.5).item())
 
 if __name__ == "__main__":
     loss = DomainLosses(cuda=True)
-    a = torch.ones(1, 1, 7, 7).cuda()*0.1
-    b = torch.ones(1, 1, 7, 7).cuda()*0.9
-    d_loss,acc = loss.DomainClassiferLoss(b, a)
+    a = torch.ones(1, 1, 7, 7).cuda()*1
+    b = torch.ones(1, 1, 7, 7).cuda()*0
+    src = torch.cat([a,b],dim=1)
+    tgt = torch.cat([b,a],dim=1)
+    d_loss,acc = loss.DomainClassiferLoss(src, tgt)
     print(d_loss,acc)
 
 
