@@ -327,7 +327,7 @@ def main():
                         help='backbone name (default: mobilenet)')
     parser.add_argument('--out-stride', type=int, default=16,
                         help='network output stride (default: 16)')
-    parser.add_argument('--dataset', type=str, default='gtav',
+    parser.add_argument('--dataset', type=str, default='gtav2cityscapes',
                         choices=['gtav2cityscapes','gtav'],
                         help='dataset name (default: gtav2cityscapes)')
     # path to the training dataset
