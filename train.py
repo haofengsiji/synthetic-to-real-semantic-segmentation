@@ -140,7 +140,8 @@ class Trainer(object):
                 self.d_optimizer.load_state_dict(checkpoint['d_optimizer'])
                 self.d_inv_optimizer.load_state_dict(checkpoint['d_inv_optimizer'])
                 self.c_optimizer.load_state_dict(checkpoint['c_optimizer'])
-            self.best_pred = checkpoint['best_pred']
+            if self.args.dataset != 'gtav':
+                self.best_pred = checkpoint['best_pred']
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
 
@@ -193,17 +194,31 @@ class Trainer(object):
                 tgt_output = F.interpolate(self.y_model(tgt_high_feature, tgt_low_feature), tgt_image.size()[2:], \
                                            mode='bilinear', align_corners=True)
                 tgt_d_pred = self.d_model(tgt_high_feature)
-                d_loss, d_acc = self.domain_loss(src_d_pred, tgt_d_pred)
-                d_inv_loss, _ = self.domain_loss(tgt_d_pred, src_d_pred)
-                d_inv_loss = (d_loss + d_inv_loss) / 2
             else:
                 d_acc = 0
                 d_loss = torch.tensor(0.0)
                 d_inv_loss = torch.tensor(0.0)
-
-            loss = task_loss
-            loss.backward()
-            self.task_optimizer.step()
+            if self.args.dataset != 'gtav':
+                if i%2 == 0:
+                    d_loss, d_acc = self.domain_loss(src_d_pred, tgt_d_pred)
+                    d_inv_loss = torch.tensor(0.0)
+                    loss = task_loss + d_loss
+                    loss.backward()
+                    self.task_optimizer.step()
+                    self.d_optimizer.step()
+                else:
+                    d_acc = 0
+                    d_loss = torch.tensor(0.0)
+                    d_inv_loss, _ = self.domain_loss(tgt_d_pred, src_d_pred)
+                    d_inv_loss = (d_loss + d_inv_loss) / 2
+                    loss = task_loss + d_inv_loss
+                    loss.backward()
+                    self.task_optimizer.step()
+                    self.d_inv_optimizer.step()
+            else:
+                loss = task_loss
+                loss.backward()
+                self.task_optimizer.step()
 
             train_task_loss += task_loss.item()
             train_d_loss += d_loss.item()
@@ -335,9 +350,9 @@ def main():
                         help='path to the test training labels')
     parser.add_argument('--workers', type=int, default=4,
                         metavar='N', help='dataloader threads')
-    parser.add_argument('--base-size', type=int, default=512,
+    parser.add_argument('--base-size', type=int, default=640,
                         help='base image size')
-    parser.add_argument('--crop-size', type=int, default=512,
+    parser.add_argument('--crop-size', type=int, default=640,
                         help='crop image size')
     parser.add_argument('--sync-bn', type=bool, default=None,
                         help='whether to use sync bn (default: auto)')
@@ -351,7 +366,7 @@ def main():
     # training hyper params
     parser.add_argument('--epochs', type=int, default=200, metavar='N',
                         help='number of epochs to train (default: auto)')
-    parser.add_argument('--optimizer', type=str, default='SGD',
+    parser.add_argument('--optimizer', type=str, default='Adam',
                         choices = ['SGD','Adam'],
                         help='the method of optimizer (default: SGD)')
     parser.add_argument('--start_epoch', type=int, default=0,
@@ -374,7 +389,7 @@ def main():
                         metavar='M', help='w-decay (default: 5e-4)')
     parser.add_argument('--nesterov', action='store_true', default=False,
                         help='whether use nesterov (default: False)')
-    parser.add_argument('--use_balanced_weights', action='store_true', default=True,
+    parser.add_argument('--use_balanced_weights', action='store_true', default=False,
                         help='whether use balanced weights (default: True)')
     # cuda, seed and logging
     parser.add_argument('--no-cuda', action='store_true', default=
