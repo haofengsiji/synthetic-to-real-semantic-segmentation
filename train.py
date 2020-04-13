@@ -64,7 +64,7 @@ class Trainer(object):
             self.task_optimizer = torch.optim.SGD(f_params+y_params, lr= args.lr,
                                              momentum=args.momentum,
                                              weight_decay=args.weight_decay, nesterov=args.nesterov)
-            self.d_optimizer = torch.optim.SGD(d_params, lr= args.lr*10,
+            self.d_optimizer = torch.optim.SGD(d_params, lr= args.lr,
                                           momentum=args.momentum,
                                           weight_decay=args.weight_decay, nesterov=args.nesterov)
             self.d_inv_optimizer = torch.optim.SGD(f_params, lr= args.lr,
@@ -75,7 +75,7 @@ class Trainer(object):
                                           weight_decay=args.weight_decay, nesterov=args.nesterov)
         elif args.optimizer == 'Adam':
             self.task_optimizer = torch.optim.Adam(f_params + y_params, lr=args.lr)
-            self.d_optimizer = torch.optim.Adam(d_params, lr=args.lr*10)
+            self.d_optimizer = torch.optim.Adam(d_params, lr=args.lr)
             self.d_inv_optimizer = torch.optim.Adam(f_params, lr=args.lr)
             self.c_optimizer = torch.optim.Adam(f_params+y_params, lr=args.lr)
         else:
@@ -140,7 +140,7 @@ class Trainer(object):
                 self.d_optimizer.load_state_dict(checkpoint['d_optimizer'])
                 self.d_inv_optimizer.load_state_dict(checkpoint['d_inv_optimizer'])
                 self.c_optimizer.load_state_dict(checkpoint['c_optimizer'])
-            if self.args.dataset != 'gtav':
+            if self.args.dataset == 'gtav':
                 self.best_pred = checkpoint['best_pred']
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
@@ -197,12 +197,10 @@ class Trainer(object):
 
                 d_loss,d_acc = self.domain_loss(src_d_pred, tgt_d_pred)
                 d_inv_loss, _ = self.domain_loss(tgt_d_pred, src_d_pred)
-                d_inv_loss = (d_loss + d_inv_loss)/2
-                task_loss.backward(retain_graph=True)
+                loss = task_loss + d_loss + d_inv_loss
+                loss.backward()
                 self.task_optimizer.step()
-                d_loss.backward(retain_graph=True)
                 self.d_optimizer.step()
-                d_inv_loss.backward()
                 self.d_inv_optimizer.step()
             else:
                 d_acc = 0
@@ -392,12 +390,12 @@ def main():
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
     # checking point
-    parser.add_argument('--resume', type=str, default=None,
+    parser.add_argument('--resume', type=str, default='/home/zhengfang/proj/synthetic-to-real-semantic-segmentation/run/gtav/deeplab-mobilenet/experiment_0/checkpoint.pth.tar',
                         help='put the path to resuming file if needed')
     parser.add_argument('--checkname', type=str, default=None,
                         help='set the checkpoint name')
     # finetuning pre-trained models
-    parser.add_argument('--ft', action='store_true', default=False,
+    parser.add_argument('--ft', action='store_true', default=True,
                         help='finetuning on a different dataset')
     # evaluation option
     parser.add_argument('--eval-interval', type=int, default=1,
