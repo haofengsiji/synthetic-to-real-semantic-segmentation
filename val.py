@@ -13,20 +13,15 @@ from modeling.domian import DomainClassifer
 from modeling.decoder import Decoder
 from modeling.sync_batchnorm.batchnorm import SynchronizedBatchNorm2d
 from modeling.sync_batchnorm.replicate import patch_replication_callback
-from utils.saver import Saver
 from utils.metrics import Evaluator
-from utils.loss import SegmentationLosses
+from utils.loss import SegmentationLosses,DomainLosses
 from utils.lr_scheduler import LR_Scheduler
-from utils.summaries import TensorboardSummary
 from utils.calculate_weights import calculate_weigths_labels
 
-
+from PIL import Image
 from dataloders import make_data_loader
 
-from PIL import Image
-
-
-class Tester(object):
+class Trainer(object):
     def __init__(self, args):
         self.args = args
 
@@ -56,6 +51,49 @@ class Tester(object):
         y_params = list(self.y_model.parameters())
         d_params = list(self.d_model.parameters())
 
+        # Define Optimizer
+        if args.optimizer == 'SGD':
+            self.task_optimizer = torch.optim.SGD(f_params+y_params, lr= args.lr,
+                                             momentum=args.momentum,
+                                             weight_decay=args.weight_decay, nesterov=args.nesterov)
+            self.d_optimizer = torch.optim.SGD(d_params, lr= args.lr,
+                                          momentum=args.momentum,
+                                          weight_decay=args.weight_decay, nesterov=args.nesterov)
+            self.d_inv_optimizer = torch.optim.SGD(f_params, lr= args.lr,
+                                          momentum=args.momentum,
+                                          weight_decay=args.weight_decay, nesterov=args.nesterov)
+            self.c_optimizer = torch.optim.SGD(f_params+y_params, lr= args.lr,
+                                          momentum=args.momentum,
+                                          weight_decay=args.weight_decay, nesterov=args.nesterov)
+        elif args.optimizer == 'Adam':
+            self.task_optimizer = torch.optim.Adam(f_params + y_params, lr=args.lr)
+            self.d_optimizer = torch.optim.Adam(d_params, lr=args.lr)
+            self.d_inv_optimizer = torch.optim.Adam(f_params, lr=args.lr)
+            self.c_optimizer = torch.optim.Adam(f_params+y_params, lr=args.lr)
+        else:
+            raise NotImplementedError
+
+        # Define Criterion
+        # whether to use class balanced weights
+        if args.use_balanced_weights:
+            classes_weights_path = 'dataloders\\datasets\\'+args.dataset + '_classes_weights.npy'
+            if os.path.isfile(classes_weights_path):
+                weight = np.load(classes_weights_path)
+            else:
+                weight = calculate_weigths_labels(self.train_loader, self.nclass, classes_weights_path, self.args.dataset)
+            weight = torch.from_numpy(weight.astype(np.float32))
+        else:
+            weight = None
+        self.task_loss = SegmentationLosses(weight=weight, cuda=args.cuda).build_loss(mode=args.loss_type)
+        self.domain_loss = DomainLosses(cuda=args.cuda).build_loss()
+        self.ca_loss = ''
+
+        # Define Evaluator
+        self.evaluator = Evaluator(self.nclass)
+
+        # Define lr scheduler
+        self.scheduler = LR_Scheduler(args.lr_scheduler, args.lr,
+                                      args.epochs, len(self.train_loader))
 
         # Using cuda
         if args.cuda:
@@ -89,23 +127,91 @@ class Tester(object):
                 self.assp_model.load_state_dict(checkpoint['assp_model_state_dict'])
                 self.y_model.load_state_dict(checkpoint['y_model_state_dict'])
                 self.d_model.load_state_dict(checkpoint['d_model_state_dict'])
-            '''if not args.ft:
+            if not args.ft:
                 self.task_optimizer.load_state_dict(checkpoint['task_optimizer'])
                 self.d_optimizer.load_state_dict(checkpoint['d_optimizer'])
                 self.d_inv_optimizer.load_state_dict(checkpoint['d_inv_optimizer'])
-                self.c_optimizer.load_state_dict(checkpoint['c_optimizer'])'''
-            self.best_pred = checkpoint['best_pred']
+                self.c_optimizer.load_state_dict(checkpoint['c_optimizer'])
+            if self.args.dataset == 'gtav':
+                self.best_pred = checkpoint['best_pred']
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
-        else: 
-            print('No Resuming Checkpoint Given')
-            raise NotImplementedError
 
         # Clear start epoch if fine-tuning
         if args.ft:
             args.start_epoch = 0
 
-    def imgsaver(self, img, imgname):
+
+
+    def validation(self, epoch):
+        self.backbone_model.eval()
+        self.assp_model.eval()
+        self.y_model.eval()
+        self.d_model.eval()
+        self.evaluator.reset()
+        tbar = tqdm(self.val_loader, desc='\r')
+        test_loss = 0.0
+        for i, sample in enumerate(tbar):
+            image, target = sample['image'], sample['label']
+            if self.args.cuda:
+                image, target = image.cuda(), target.cuda()
+            with torch.no_grad():
+                high_feature, low_feature = self.backbone_model(image)
+                high_feature = self.assp_model(high_feature)
+                output = F.interpolate(self.y_model(high_feature, low_feature), image.size()[2:], \
+                                           mode='bilinear', align_corners=True)
+            task_loss = self.task_loss(output, target)
+            test_loss += task_loss.item()
+            tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
+            pred = output.data.cpu().numpy()
+            target = target.cpu().numpy()
+            pred = np.argmax(pred, axis=1)
+            # Add batch sample into evaluator
+            self.evaluator.add_batch(target, pred)
+
+        # Fast test during the training
+        Acc = self.evaluator.Pixel_Accuracy()
+        Acc_class = self.evaluator.Pixel_Accuracy_Class()
+        mIoU,IoU = self.evaluator.Mean_Intersection_over_Union()
+        FWIoU = self.evaluator.Frequency_Weighted_Intersection_over_Union()
+        ClassName = ["road",
+                    "sidewalk",
+                    "building",
+                    "wall",
+                    "fence",
+                    "pole",
+                    "light",
+                    "sign",
+                    "vegetation",
+                    "terrain",
+                    "sky",
+                    "person",
+                    "rider",
+                    "car",
+                    "truck",
+                    "bus",
+                    "train",
+                    "motocycle",
+                    "bicycle"]
+        with open('val_info.txt','a') as f1:
+            f1.write('Validation:'+'\n')
+            f1.write('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]) + '\n')
+            f1.write("Acc:{}, Acc_class:{}, mIoU:{}, fwIoU: {}".format(Acc, Acc_class, mIoU, FWIoU) + '\n')
+            f1.write('Loss: %.3f' % test_loss + '\n' + '\n')
+            f1.write('Class IOU: ' + '\n')
+            for idx in range(19):
+                f1.write('\t' + ClassName[idx] + (': \t' if len(ClassName[idx])>5 else ': \t\t') + str(IoU[idx]) + '\n')
+
+        print('Validation:')
+        print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]))
+        print("Acc:{}, Acc_class:{}, mIoU:{}, fwIoU: {}".format(Acc, Acc_class, mIoU, FWIoU))
+        print('Loss: %.3f' % test_loss)
+        print(IoU)
+
+        new_pred = mIoU
+    
+
+    def imgsaver(self, img, imgname, miou):
         im1 = np.uint8(img.transpose(1,2,0)).squeeze()
         #filename_list = sorted(os.listdir(self.args.test_img_root))
 
@@ -116,7 +222,7 @@ class Tester(object):
             im1_np[im1 == _validc] = class_map[_validc]
         saveim1 = Image.fromarray(im1_np, mode='L')
         saveim1 = saveim1.resize((1280,640), Image.NEAREST)
-        saveim1.save('result/'+imgname)
+        # saveim1.save('result_val/'+imgname)
 
         palette = [[128,64,128],
                     [244,35,232],
@@ -144,51 +250,39 @@ class Tester(object):
             im2_np[im1 == _validc] = class_color_map[_validc]
         saveim2 = Image.fromarray(im2_np)
         saveim2 = saveim2.resize((1280,640), Image.NEAREST)
-        saveim2.save('result/'+imgname[:-4]+'_color.png')
+        saveim2.save('result_val/'+imgname[:-4]+'_color_'+str(miou)+'_.png')
         # print('saving: '+filename_list[idx])
 
 
-    def test(self, epoch):
+    def validationSep(self, epoch):
         self.backbone_model.eval()
         self.assp_model.eval()
         self.y_model.eval()
         self.d_model.eval()
-        tbar = tqdm(self.test_loader, desc='\r')
+        self.evaluator.reset()
+        tbar = tqdm(self.val_loader, desc='\r')
         test_loss = 0.0
         for i, sample in enumerate(tbar):
-            image = sample['image']
+            image, target = sample['image'], sample['label']
+            self.evaluator.reset()
             if self.args.cuda:
-                image = image.cuda()
+                image, target = image.cuda(), target.cuda()
             with torch.no_grad():
                 high_feature, low_feature = self.backbone_model(image)
                 high_feature = self.assp_model(high_feature)
                 output = F.interpolate(self.y_model(high_feature, low_feature), image.size()[2:], \
                                            mode='bilinear', align_corners=True)
+            task_loss = self.task_loss(output, target)
+            test_loss += task_loss.item()
             tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
             pred = output.data.cpu().numpy()
+            target = target.cpu().numpy()
             pred = np.argmax(pred, axis=1)
-
-
-            self.imgsaver(pred, sample['name'][0]);
-
-        # Fast test during the training
-        print('Test:')
-        print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.test_batch_size + image.data.shape[0]))
-        '''Acc = self.evaluator.Pixel_Accuracy()
-        Acc_class = self.evaluator.Pixel_Accuracy_Class()
-        mIoU = self.evaluator.Mean_Intersection_over_Union()
-        FWIoU = self.evaluator.Frequency_Weighted_Intersection_over_Union()
-        self.writer.add_scalar('val/total_loss_epoch', test_loss, epoch)
-        self.writer.add_scalar('val/mIoU', mIoU, epoch)
-        self.writer.add_scalar('val/Acc', Acc, epoch)
-        self.writer.add_scalar('val/Acc_class', Acc_class, epoch)
-        self.writer.add_scalar('val/fwIoU', FWIoU, epoch)'''
-        # print("Acc:{}, Acc_class:{}, mIoU:{}, fwIoU: {}".format(Acc, Acc_class, mIoU, FWIoU))
-        # print('Loss: %.3f' % test_loss)
-
-        # new_pred = mIoU
-
-
+            # Add batch sample into evaluator
+            self.evaluator.add_batch(target, pred)
+            mIoU,IoU = self.evaluator.Mean_Intersection_over_Union()
+            self.imgsaver(pred, sample['name'][0], mIoU)
+        
 
 
 
@@ -201,7 +295,7 @@ def main():
     parser.add_argument('--out-stride', type=int, default=16,
                         help='network output stride (default: 16)')
     parser.add_argument('--dataset', type=str, default='gtav2cityscapes',
-                        choices=['gtav2cityscapes'],
+                        choices=['gtav2cityscapes','gtav'],
                         help='dataset name (default: gtav2cityscapes)')
     # path to the training dataset
     parser.add_argument('--src_img_root', type=str, default='/home/yaojy/DeepLearningProject/data/GTA_V/train_img',
@@ -233,22 +327,24 @@ def main():
     parser.add_argument('--loss-type', type=str, default='ce',
                         choices=['ce', 'focal'],
                         help='loss func type (default: ce)')
+    parser.add_argument('--no_d_loss', type=bool, default=False,
+                        help='whether to use domain transfer loss(default: False)')
     # training hyper params
     parser.add_argument('--epochs', type=int, default=200, metavar='N',
                         help='number of epochs to train (default: auto)')
-    parser.add_argument('--optimizer', type=str, default='SGD',
+    parser.add_argument('--optimizer', type=str, default='Adam',
                         choices = ['SGD','Adam'],
                         help='the method of optimizer (default: SGD)')
     parser.add_argument('--start_epoch', type=int, default=0,
                         metavar='N', help='start epochs (default:0)')
-    parser.add_argument('--batch-size', type=int, default=16,
+    parser.add_argument('--batch-size', type=int, default=4,
                         metavar='N', help='input batch size for \
                                     training (default: auto)')
     parser.add_argument('--test-batch-size', type=int, default=1,
                         metavar='N', help='input batch size for \
                                     testing (default: auto)')
     # optimizer params
-    parser.add_argument('--lr', type=float, default=None, metavar='LR',
+    parser.add_argument('--lr', type=float, default=5e-4, metavar='LR',
                         help='learning rate (default: auto)')
     parser.add_argument('--lr-scheduler', type=str, default='poly',
                         choices=['poly', 'step', 'cos'],
@@ -259,23 +355,23 @@ def main():
                         metavar='M', help='w-decay (default: 5e-4)')
     parser.add_argument('--nesterov', action='store_true', default=False,
                         help='whether use nesterov (default: False)')
-    parser.add_argument('--use_balanced_weights', action='store_true', default=True,
+    parser.add_argument('--use_balanced_weights', action='store_true', default=False,
                         help='whether use balanced weights (default: True)')
     # cuda, seed and logging
     parser.add_argument('--no-cuda', action='store_true', default=
                         False, help='disables CUDA training')
-    parser.add_argument('--gpu-ids', type=str, default='0,1,2,3',
+    parser.add_argument('--gpu-ids', type=str, default='0',
                         help='use which gpu to train, must be a \
                         comma-separated list of integers only (default=0)')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
     # checking point
-    parser.add_argument('--resume', type=str, default=None,
+    parser.add_argument('--resume', type=str, default='/home/zhengfang/proj/synthetic-to-real-semantic-segmentation/run/gtav/deeplab-mobilenet/experiment_0/checkpoint.pth.tar',
                         help='put the path to resuming file if needed')
     parser.add_argument('--checkname', type=str, default=None,
                         help='set the checkpoint name')
     # finetuning pre-trained models
-    parser.add_argument('--ft', action='store_true', default=False,
+    parser.add_argument('--ft', action='store_true', default=True,
                         help='finetuning on a different dataset')
     # evaluation option
     parser.add_argument('--eval-interval', type=int, default=1,
@@ -300,6 +396,7 @@ def main():
     if args.epochs is None:
         epoches = {
             'gtav2cityscapes': 200,
+            'gtav':200
         }
         args.epochs = epoches[args.dataset.lower()]
 
@@ -311,7 +408,8 @@ def main():
 
     if args.lr is None:
         lrs = {
-            'gtav2cityscapes': 0.01,
+            'gtav2cityscapes': 0.001,
+            'gtav':0.001
         }
         args.lr = lrs[args.dataset.lower()] / (4 * len(args.gpu_ids)) * args.batch_size
 
@@ -319,11 +417,11 @@ def main():
         args.checkname = 'deeplab-' + str(args.backbone)
     print(args)
     torch.manual_seed(args.seed)
+    trainer = Trainer(args)
+    trainer.validationSep(0)
+    trainer.validation(0)
 
-    
-    tester = Tester(args)
-    print('Starting TEST:')
-    tester.test(1)
+
 
 
 
