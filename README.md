@@ -1,5 +1,11 @@
 # synthetic-to-real-semantic-segmentation.
 
+Backbone: mobilenet-V2
+
+Segmentation framework: deeplab-V3
+
+Adaption method: FCN_in_wild, AdaptSegNet
+
 ## Result
 
 feature adaption: 23.9 mIoU
